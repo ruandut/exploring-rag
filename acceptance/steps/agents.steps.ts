@@ -7,6 +7,7 @@ import { Given, Then, When } from "@cucumber/cucumber";
 import { ChatPage } from "../pages/chat-page.ts";
 import { FIXTURES } from "../pages/library-page.ts";
 import { createAgent, createFolder, indexDocument } from "../support/documents.ts";
+import { ensureDefaultEmbedding } from "../support/embeddings.ts";
 import { APP_URL } from "../support/env.ts";
 import type { AppWorld } from "../support/world.ts";
 
@@ -120,13 +121,8 @@ Given(
 Given(
   "{string} is indexed with one chunk per heading",
   async function (this: AppWorld, name: string) {
-    const res = await this.api.put("/api/rag/indexing-config/", {
-      strategy: "markdown",
-      chunk_size: 512,
-      chunk_overlap: 0,
-      confirm_reindex: true,
-    });
-    assert.equal(res.status, 200, res.text);
+    // Chunking belongs to the embedding since spec 0010.
+    await ensureDefaultEmbedding(this, { strategy: "markdown", chunkSize: 512, chunkOverlap: 0 });
     await indexDocument(this, name);
   },
 );

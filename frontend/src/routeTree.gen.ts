@@ -14,6 +14,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppAgentsRouteImport } from './routes/_app/agents'
 import { Route as AppChatRouteImport } from './routes/_app/chat'
+import { Route as AppEmbeddingsRouteImport } from './routes/_app/embeddings'
 import { Route as AppLibraryRouteImport } from './routes/_app/library'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppSystemDesignRouteImport } from './routes/_app/system-design'
@@ -43,6 +44,11 @@ const AppAgentsRoute = AppAgentsRouteImport.update({
 const AppChatRoute = AppChatRouteImport.update({
   id: '/chat',
   path: '/chat',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppEmbeddingsRoute = AppEmbeddingsRouteImport.update({
+  id: '/embeddings',
+  path: '/embeddings',
   getParentRoute: () => AppRoute,
 } as any)
 const AppLibraryRoute = AppLibraryRouteImport.update({
@@ -81,6 +87,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/agents': typeof AppAgentsRoute
   '/chat': typeof AppChatRoute
+  '/embeddings': typeof AppEmbeddingsRoute
   '/library': typeof AppLibraryRoute
   '/settings': typeof AppSettingsRoute
   '/system-design': typeof AppSystemDesignRoute
@@ -92,6 +99,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/agents': typeof AppAgentsRoute
   '/chat': typeof AppChatRoute
+  '/embeddings': typeof AppEmbeddingsRoute
   '/library': typeof AppLibraryRoute
   '/settings': typeof AppSettingsRoute
   '/system-design': typeof AppSystemDesignRoute
@@ -106,6 +114,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/_app/agents': typeof AppAgentsRoute
   '/_app/chat': typeof AppChatRoute
+  '/_app/embeddings': typeof AppEmbeddingsRoute
   '/_app/library': typeof AppLibraryRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/system-design': typeof AppSystemDesignRoute
@@ -121,6 +130,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/agents'
     | '/chat'
+    | '/embeddings'
     | '/library'
     | '/settings'
     | '/system-design'
@@ -132,6 +142,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/agents'
     | '/chat'
+    | '/embeddings'
     | '/library'
     | '/settings'
     | '/system-design'
@@ -145,6 +156,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/_app/agents'
     | '/_app/chat'
+    | '/_app/embeddings'
     | '/_app/library'
     | '/_app/settings'
     | '/_app/system-design'
@@ -196,6 +208,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppChatRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/embeddings': {
+      id: '/_app/embeddings'
+      path: '/embeddings'
+      fullPath: '/embeddings'
+      preLoaderRoute: typeof AppEmbeddingsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/library': {
       id: '/_app/library'
       path: '/library'
@@ -244,6 +263,7 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppAgentsRoute: typeof AppAgentsRoute
   AppChatRoute: typeof AppChatRoute
+  AppEmbeddingsRoute: typeof AppEmbeddingsRoute
   AppLibraryRoute: typeof AppLibraryRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppSystemDesignRoute: typeof AppSystemDesignRoute
@@ -256,6 +276,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppAgentsRoute: AppAgentsRoute,
   AppChatRoute: AppChatRoute,
+  AppEmbeddingsRoute: AppEmbeddingsRoute,
   AppLibraryRoute: AppLibraryRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppSystemDesignRoute: AppSystemDesignRoute,

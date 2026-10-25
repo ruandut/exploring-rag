@@ -61,3 +61,14 @@
   (owner-only → 404, messages cascade). A reply still streaming is cancelled first: the run is
   now recorded on the conversation (`active_run_id`), and `send_to_user(cancel_background=…)`
   stops the relay on whichever socket owns it. Deleting the open chat returns to an empty chat.
+- **Drafted 0010 Embeddings** (your request; it started as a model picker): a new
+  **Embeddings** menu section where you create named embeddings (folders and/or files +
+  endpoint + model + chunking). Each one is indexed on its own, can be edited (only the
+  difference is indexed) or re-indexed, and shows live status. Chat picks **agent + embedding +
+  model** and shows them in a header. Each answer records what produced it, and Benchmarks
+  compare two embeddings on the same suite. Agents keep only the system message and retrieval
+  strategy. A searchable model picker (Embedding / Chat / Unknown, dimensions, "No tools",
+  custom ids, `ollama pull` hints) replaces the free-text model fields. Text only (your call).
+  Today's data migrates into one embedding, "My documents", with no re-index. Proposes
+  CLAUDE.md changes (one model per *index*, `provider.embedding_changed` removed, new
+  `document.moved` event, `chat → rag` dependency, `embedding.status` ws event). 18 scenarios.

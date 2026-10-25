@@ -18,8 +18,6 @@ class ProviderConfigSerializer(serializers.ModelSerializer):
             "api_key_last4",
             "has_api_key",
             "chat_model",
-            "embedding_model",
-            "embedding_dimensions",
             "updated_at",
         ]
         read_only_fields = ["api_key_last4", "updated_at"]
@@ -28,20 +26,12 @@ class ProviderConfigSerializer(serializers.ModelSerializer):
         return bool(obj.api_key_encrypted)
 
 
-class SaveProviderSerializer(ProviderConfigSerializer):
-    confirm_reindex = serializers.BooleanField(default=False, write_only=True)
-
-    class Meta(ProviderConfigSerializer.Meta):
-        fields = [*ProviderConfigSerializer.Meta.fields, "confirm_reindex"]
-
-
 class TestConnectionSerializer(serializers.Serializer):
     """Values from the (possibly unsaved) form. A blank api_key means "use the saved one"."""
 
     base_url = serializers.URLField(max_length=500)
     api_key = serializers.CharField(required=False, allow_blank=True, max_length=500)
     chat_model = serializers.CharField(max_length=200)
-    embedding_model = serializers.CharField(max_length=200)
 
 
 class ConnectionSerializer(serializers.ModelSerializer):

@@ -10,7 +10,9 @@
 // - `down = true` makes every request fail with 503, like a provider outage.
 // - Embeddings are a toy "8 topics" model (see TOPICS): texts about the same topic point the
 //   same way. Like real embedding models it ignores exact codes such as "E-4012" — which is
-//   precisely the gap keyword/hybrid search fills.
+//   precisely the gap keyword/hybrid search fills. A model named "…-<n>" (e.g. fake-embed-16)
+//   returns n dimensions (the 8 topics, zero-padded), so specs can compare embedding sizes.
+// - `embedded` records every text sent to /embeddings, so specs can check what was indexed.
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -28,15 +30,20 @@ const TOPICS: string[][] = [
 ];
 const TOPIC_OF = new Map(TOPICS.flatMap((words, dim) => words.map((w) => [w, dim] as const)));
 
-function embed(text: string): number[] {
-  const v = new Array(FAKE_EMBEDDING_DIMENSIONS).fill(0);
+export function dimensionsOf(model: string): number {
+  const n = Number(/-(\d+)$/.exec(model)?.[1]);
+  return n > 0 ? n : FAKE_EMBEDDING_DIMENSIONS;
+}
+
+function embed(text: string, dims = FAKE_EMBEDDING_DIMENSIONS): number[] {
+  const v = new Array(Math.max(dims, FAKE_EMBEDDING_DIMENSIONS)).fill(0);
   for (const word of text.toLowerCase().match(/[a-z]+/g) ?? []) {
     const dim = TOPIC_OF.get(word);
     if (dim !== undefined) v[dim] += 1;
     else if (word.length > 2) v[7] += 0.1; // everything else: a faint "other" signal
   }
   const norm = Math.hypot(...v) || 1;
-  return v.map((x) => x / norm);
+  return v.map((x) => x / norm).slice(0, dims);
 }
 
 type Msg = { role: string; content?: string | null; tool_calls?: unknown[] };
@@ -90,6 +97,8 @@ function judgeReply(model: string, prompt: string): string {
 export type FakeLlm = {
   baseUrl: string;
   requests: string[];
+  /** Every text sent to /embeddings, in order. */
+  embedded: string[];
   /** Simulate an outage: every request fails with 503 while true. */
   down: boolean;
   close: () => Promise<void>;
@@ -97,6 +106,7 @@ export type FakeLlm = {
 
 export async function startFakeLlm(): Promise<FakeLlm> {
   const requests: string[] = [];
+  const embedded: string[] = [];
   const state = { down: false };
 
   const server = createServer((req, res) => {
@@ -126,10 +136,12 @@ export async function startFakeLlm(): Promise<FakeLlm> {
       }
       if (req.url?.endsWith("/embeddings")) {
         const inputs: string[] = Array.isArray(body.input) ? body.input : [body.input];
+        embedded.push(...inputs);
+        const dims = dimensionsOf(String(body.model));
         return send(200, {
           object: "list",
           model: body.model,
-          data: inputs.map((text, index) => ({ object: "embedding", index, embedding: embed(text) })),
+          data: inputs.map((text, index) => ({ object: "embedding", index, embedding: embed(text, dims) })),
           usage: { prompt_tokens: 1, total_tokens: 1 },
         });
       }
@@ -145,6 +157,7 @@ export async function startFakeLlm(): Promise<FakeLlm> {
   return {
     baseUrl: `http://127.0.0.1:${port}/v1`,
     requests,
+    embedded,
     get down() {
       return state.down;
     },

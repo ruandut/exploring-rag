@@ -9,8 +9,6 @@ export type ProviderConfig = {
   api_key_last4: string;
   has_api_key: boolean;
   chat_model: string;
-  embedding_model: string;
-  embedding_dimensions: number | null;
   updated_at: string;
 };
 
@@ -18,20 +16,11 @@ export type SaveProviderInput = {
   base_url: string;
   api_key?: string; // omitted = keep the stored key
   chat_model: string;
-  embedding_model: string;
-  embedding_dimensions: number | null;
-  confirm_reindex?: boolean;
 };
 
 export type Check = { ok: boolean; detail: string; latency_ms: number | null };
-export type ConnectionReport = {
-  ok: boolean;
-  chat: Check;
-  embeddings: Check;
-  embedding_dimensions: number | null;
-};
-
-type Saved<T> = T & { reindex_started: boolean };
+/** Test connection checks chat only; each embedding has its own Test (spec 0010). */
+export type ConnectionReport = { ok: boolean; chat: Check };
 
 export function useProviderConfig() {
   return useQuery({
@@ -45,7 +34,7 @@ export function useSaveProvider() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: SaveProviderInput) =>
-      api<Saved<ProviderConfig>>("/api/providers/config/", {
+      api<ProviderConfig>("/api/providers/config/", {
         method: "PUT",
         body: JSON.stringify(input),
       }),
@@ -55,7 +44,7 @@ export function useSaveProvider() {
 
 export function useTestConnection() {
   return useMutation({
-    mutationFn: (input: Omit<SaveProviderInput, "embedding_dimensions" | "confirm_reindex">) =>
+    mutationFn: (input: SaveProviderInput) =>
       api<ConnectionReport>("/api/providers/test/", {
         method: "POST",
         body: JSON.stringify(input),
@@ -63,16 +52,9 @@ export function useTestConnection() {
   });
 }
 
-// --- Indexing settings (apps.rag) --------------------------------------------------------
+// --- Chunking (per embedding, apps.rag) ----------------------------------------------------
 
 export type Strategy = "fixed" | "recursive" | "markdown" | "semantic" | "parent_document";
-
-export type IndexingConfig = {
-  strategy: Strategy;
-  chunk_size: number;
-  chunk_overlap: number;
-  updated_at: string | null;
-};
 
 export const STRATEGIES: { value: Strategy; label: string; hint: string }[] = [
   { value: "fixed", label: "Fixed size", hint: "Every N tokens. Simple and predictable." },
@@ -93,25 +75,6 @@ export const STRATEGIES: { value: Strategy; label: string; hint: string }[] = [
     hint: "Search small chunks, give the LLM the larger parent.",
   },
 ];
-
-export function useIndexingConfig() {
-  return useQuery({
-    queryKey: ["indexing-config"],
-    queryFn: () => api<IndexingConfig>("/api/rag/indexing-config/"),
-  });
-}
-
-export function useSaveIndexing() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: Omit<IndexingConfig, "updated_at"> & { confirm_reindex?: boolean }) =>
-      api<Saved<IndexingConfig>>("/api/rag/indexing-config/", {
-        method: "PUT",
-        body: JSON.stringify(input),
-      }),
-    onSuccess: (data) => queryClient.setQueryData(["indexing-config"], data),
-  });
-}
 
 // --- error helpers -----------------------------------------------------------------------
 

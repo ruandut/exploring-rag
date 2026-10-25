@@ -10,6 +10,7 @@ const STYLES: Record<DocumentStatus, { label: string; className: string }> = {
   indexing: { label: "Indexing", className: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
   ready: { label: "Ready", className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" },
   failed: { label: "Failed", className: "bg-destructive/15 text-destructive" },
+  not_indexed: { label: "Not indexed", className: "bg-muted text-muted-foreground" },
 };
 
 export function StatusBadge({ status }: { status: DocumentStatus }) {

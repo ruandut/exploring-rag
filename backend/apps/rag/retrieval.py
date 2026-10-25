@@ -18,7 +18,7 @@ from openai import OpenAI
 from apps.library import selectors as library_selectors
 
 from .llm import complete, parse_int_list
-from .models import HNSW_DIMENSIONS, Chunk
+from .models import HNSW_DIMENSIONS, Chunk, EmbeddingIndex
 
 RRF_K = 60  # standard constant; dampens the influence of exact rank positions
 CANDIDATES = 20  # how many each method fetches before fusing / reranking
@@ -66,7 +66,8 @@ def search(
     query: str,
     *,
     config: RetrievalConfig,
-    folder_ids: Sequence[int] | None,
+    index: EmbeddingIndex,
+    folder_ids: Sequence[int] | None = None,
     embed: Callable[[list[str]], list[list[float]]],
     client: OpenAI,
     chat_model: str,
@@ -106,16 +107,19 @@ def search(
             f"Write a short passage (3 sentences) that answers this question:\n\n{query}",
         )
 
+    # The query must be embedded by the index's own model — that's what `embed` is — and only
+    # that index's chunks are searched, so vectors from different models never meet.
     vectors = embed([dense_text.get(q, q) for q in queries])
+    scope = Scope(user.id, index.pk, doc_ids)
     ranked = (
         rrf(
             [
-                _search_one(user, q, v, config.method, doc_ids, want)
+                _search_one(scope, q, v, config.method, want)
                 for q, v in zip(queries, vectors, strict=True)
             ]
         )
         if len(queries) > 1
-        else _search_one(user, queries[0], vectors[0], config.method, doc_ids, want)
+        else _search_one(scope, queries[0], vectors[0], config.method, want)
     )
     chunks = hydrate(ranked[:want])
 
@@ -124,17 +128,32 @@ def search(
     return chunks[: config.top_k]
 
 
-def _search_one(user, query: str, vector: list[float], method: str, doc_ids, limit: int) -> Ranked:
+@dataclass
+class Scope:
+    """Which chunks a search may see: one user's, in one embedding, optionally some documents."""
+
+    owner_id: int
+    index_id: int
+    doc_ids: list[int] | None = None
+
+    def sql(self) -> tuple[str, list]:
+        where = "owner_id = %s AND embedding_index_id = %s"
+        params: list = [self.owner_id, self.index_id]
+        if self.doc_ids is not None:
+            where += " AND document_id = ANY(%s)"
+            params.append(self.doc_ids)
+        return where, params
+
+
+def _search_one(scope: Scope, query: str, vector: list[float], method: str, limit: int) -> Ranked:
     if method == "dense":
-        return dense(user, vector, doc_ids, limit)
+        return dense(scope, vector, limit)
     if method == "keyword":
-        return keyword(user, query, doc_ids, limit)
+        return keyword(scope, query, limit)
     if method == "hybrid":
-        return rrf(
-            [dense(user, vector, doc_ids, CANDIDATES), keyword(user, query, doc_ids, CANDIDATES)]
-        )[:limit]
+        return rrf([dense(scope, vector, CANDIDATES), keyword(scope, query, CANDIDATES)])[:limit]
     if method == "mmr":
-        return mmr(user, vector, doc_ids, limit)
+        return mmr(scope, vector, limit)
     raise ValueError(f"Unknown retrieval method: {method}")
 
 
@@ -147,43 +166,36 @@ def _literal(vector: list[float]) -> str:
     return "[" + ",".join(f"{x:.8f}" for x in vector) + "]"
 
 
-def dense(user, vector: list[float], doc_ids, limit: int) -> Ranked:
+def dense(scope: Scope, vector: list[float], limit: int) -> Ranked:
     dims = len(vector)
     cast = _vector_sql(dims)
-    doc_filter = "AND document_id = ANY(%s)" if doc_ids is not None else ""
-    params = [
-        _literal(vector),
-        user.id,
-        dims,
-        *([doc_ids] if doc_ids is not None else []),
-        _literal(vector),
-        limit,
-    ]
+    where, params = scope.sql()
     sql = f"""
         SELECT id, 1 - (embedding{cast} <=> %s{cast}) AS score
         FROM rag_chunk
-        WHERE owner_id = %s AND dimensions = %s {doc_filter}
+        WHERE {where} AND dimensions = %s
         ORDER BY embedding{cast} <=> %s{cast}, id
         LIMIT %s
     """
+    params = [_literal(vector), *params, dims, _literal(vector), limit]
     with connection.cursor() as cur:
         cur.execute(sql, params)
         return [(row[0], float(row[1])) for row in cur.fetchall()]
 
 
-def keyword(user, query: str, doc_ids, limit: int) -> Ranked:
+def keyword(scope: Scope, query: str, limit: int) -> Ranked:
     # plainto_tsquery ANDs every word; we OR them so one rare exact term (an error code, a
     # name) is enough to match, and let ts_rank_cd reward chunks that match more of them.
-    doc_filter = "AND document_id = ANY(%s)" if doc_ids is not None else ""
-    params = [query, user.id, *([doc_ids] if doc_ids is not None else []), limit]
+    where, params = scope.sql()
     sql = f"""
         SELECT id, ts_rank_cd(search_vector, q) AS score
         FROM rag_chunk,
              to_tsquery('english', replace(plainto_tsquery('english', %s)::text, '&', '|')) q
-        WHERE owner_id = %s AND search_vector @@ q {doc_filter}
+        WHERE {where} AND search_vector @@ q
         ORDER BY score DESC, id
         LIMIT %s
     """
+    params = [query, *params, limit]
     with connection.cursor() as cur:
         cur.execute(sql, params)
         return [(row[0], float(row[1])) for row in cur.fetchall()]
@@ -199,8 +211,8 @@ def rrf(lists: Sequence[Ranked]) -> Ranked:
     return sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
 
 
-def mmr(user, vector: list[float], doc_ids, limit: int) -> Ranked:
-    candidates = dense(user, vector, doc_ids, CANDIDATES)
+def mmr(scope: Scope, vector: list[float], limit: int) -> Ranked:
+    candidates = dense(scope, vector, CANDIDATES)
     if not candidates:
         return []
     embeddings = dict(

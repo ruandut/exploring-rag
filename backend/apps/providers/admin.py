@@ -5,7 +5,7 @@ from .models import Connection, ProviderConfig
 
 @admin.register(ProviderConfig)
 class ProviderConfigAdmin(admin.ModelAdmin):
-    list_display = ["owner", "base_url", "chat_model", "embedding_model", "updated_at"]
+    list_display = ["owner", "base_url", "chat_model", "updated_at"]
     # The encrypted key is never shown, even to admins.
     exclude = ["api_key_encrypted"]
     readonly_fields = ["api_key_last4"]

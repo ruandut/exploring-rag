@@ -6,16 +6,23 @@ import pytest
 
 from apps.library.models import Document, Folder
 from apps.rag import retrieval
-from apps.rag.models import Chunk
+from apps.rag.models import Chunk, EmbeddingIndex
 
 # 3-d toy space: x = payments, y = errors, z = everything else
 PAYMENTS, ERRORS, OTHER = [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]
 
 
-def add_doc(user, name, chunks, folder=None):
+def embedding_of(user, name="toy") -> EmbeddingIndex:
+    return EmbeddingIndex.objects.get_or_create(
+        owner=user, name=name, defaults={"model": "toy", "all_documents": True}
+    )[0]
+
+
+def add_doc(user, name, chunks, folder=None, index=None):
     doc = Document.objects.create(owner=user, folder=folder, name=name, size=1, file=f"x/{name}")
     for i, (text, vec) in enumerate(chunks):
         Chunk.objects.create(
+            embedding_index=index or embedding_of(user),
             owner=user,
             document=doc,
             index=i,
@@ -51,7 +58,7 @@ def run(user, query, vector, method, top_k=2, **kw):
         user,
         query,
         config=retrieval.RetrievalConfig(method=method, top_k=top_k, **kw),
-        folder_ids=kw.pop("folder_ids", None),
+        index=embedding_of(user),
         embed=lambda texts: [vector for _ in texts],
         client=None,
         chat_model="m",
@@ -100,12 +107,21 @@ def test_folder_scoping_includes_subfolders(db, user):
         user,
         "plants",
         config=retrieval.RetrievalConfig(method="hybrid", top_k=5),
+        index=embedding_of(user),
         folder_ids=[a.pk],
         embed=lambda t: [OTHER for _ in t],
         client=None,
         chat_model="m",
     )
     assert {c.document for c in found} == {"in-sub.md"}
+
+
+def test_at_0010_14_retrieval_never_crosses_embeddings(db, user, corpus):
+    # Same model, same size, same text — but another embedding: never returned.
+    other = embedding_of(user, "other")
+    add_doc(user, "other.md", [("A fault means something broke.", ERRORS)], index=other)
+    found = run(user, "fault", ERRORS, "hybrid", top_k=10)
+    assert "other.md" not in {c.document for c in found}
 
 
 def test_dimensions_must_match_the_query(db, user, corpus):
@@ -130,7 +146,7 @@ def test_multi_query_searches_every_variant(db, user, corpus, monkeypatch):
         user,
         "Which error code is E-4012?",
         config=retrieval.RetrievalConfig(method="hybrid", top_k=3, query_transform="multi_query"),
-        folder_ids=None,
+        index=embedding_of(user),
         embed=embed,
         client=SimpleNamespace(),
         chat_model="m",
@@ -145,7 +161,7 @@ def test_hyde_embeds_a_hypothetical_answer(db, user, corpus, monkeypatch):
         user,
         "Why did my payment fail?",
         config=retrieval.RetrievalConfig(method="dense", top_k=1, query_transform="hyde"),
-        folder_ids=None,
+        index=embedding_of(user),
         embed=lambda texts: seen.extend(texts) or [PAYMENTS for _ in texts],
         client=SimpleNamespace(),
         chat_model="m",

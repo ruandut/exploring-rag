@@ -39,6 +39,7 @@ _(You left this as a TODO — this is what was built; change it and the scenario
 ## Background:
 * Given I am signed in
 * And my provider is the fake LLM provider
+* And the embedding "My documents" covers all my documents
 
 ## Scenario: AT-0003-01 — Nested folders are private
 * Given I have the folder "Projects"

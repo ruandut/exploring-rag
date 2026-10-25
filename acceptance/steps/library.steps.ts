@@ -6,7 +6,6 @@ import { Given, Then, When } from "@cucumber/cucumber";
 import { LibraryPage } from "../pages/library-page.ts";
 import { runDjango } from "../support/app.ts";
 import { createFolder, INDEXING_TIMEOUT, indexDocument } from "../support/documents.ts";
-import { FAKE_EMBEDDING_DIMENSIONS } from "../support/fake-llm.ts";
 import type { AppWorld } from "../support/world.ts";
 
 async function saveFakeProvider(world: AppWorld, apiKey: string) {
@@ -14,8 +13,6 @@ async function saveFakeProvider(world: AppWorld, apiKey: string) {
     base_url: world.fakeLlm.baseUrl,
     api_key: apiKey,
     chat_model: "fake-chat",
-    embedding_model: "fake-embed",
-    embedding_dimensions: FAKE_EMBEDDING_DIMENSIONS,
   });
   assert.equal(res.status, 200, res.text);
 }

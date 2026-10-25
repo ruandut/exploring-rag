@@ -23,9 +23,18 @@ export type ServerEvent =
       type: "document.status";
       document_id: number;
       folder_id: number | null;
-      status: "queued" | "indexing" | "ready" | "failed";
+      status: "queued" | "indexing" | "ready" | "failed" | "not_indexed";
       error: string;
       chunk_count: number;
+    }
+  | {
+      // One embedding's indexing progress (spec 0010). done counts ready + failed documents.
+      type: "embedding.status";
+      embedding_id: number;
+      status: "indexing" | "ready" | "failed";
+      done: number;
+      total: number;
+      error?: string;
     }
   | { type: "benchmark.progress"; run_id: number; done: number; total: number }
   | {

@@ -42,6 +42,8 @@ class DocumentStatus(models.TextChoices):
     INDEXING = "indexing", "Indexing"
     READY = "ready", "Ready"
     FAILED = "failed", "Failed"
+    # No embedding covers the document (spec 0010), so nothing searches it yet.
+    NOT_INDEXED = "not_indexed", "Not indexed"
 
 
 class Document(TimeStampedModel):

@@ -6,7 +6,6 @@ export type ProviderFields = {
   baseUrl?: string;
   apiKey?: string;
   chatModel?: string;
-  embeddingModel?: string;
 };
 
 export class SettingsPage {
@@ -21,11 +20,6 @@ export class SettingsPage {
     await this.page.getByLabel("Base URL").waitFor();
   }
 
-  async openIndexingTab(): Promise<void> {
-    await this.page.getByRole("tab", { name: "Indexing" }).click();
-    await this.page.getByLabel("Chunk size (tokens)").waitFor();
-  }
-
   async fillProvider(fields: ProviderFields): Promise<void> {
     const set = async (label: string, value?: string) => {
       if (value !== undefined) await this.page.getByLabel(label, { exact: true }).fill(value);
@@ -33,7 +27,6 @@ export class SettingsPage {
     await set("Base URL", fields.baseUrl);
     await set("API key", fields.apiKey);
     await set("Chat model", fields.chatModel);
-    await set("Embedding model", fields.embeddingModel);
   }
 
   async press(button: string): Promise<void> {
@@ -46,11 +39,6 @@ export class SettingsPage {
 
   get apiKeyField(): Locator {
     return this.page.getByLabel("API key", { exact: true });
-  }
-
-  async setChunking(size: number, overlap: number): Promise<void> {
-    await this.page.getByLabel("Chunk size (tokens)").fill(String(size));
-    await this.page.getByLabel("Overlap (tokens)").fill(String(overlap));
   }
 
   get confirmDialog(): Locator {

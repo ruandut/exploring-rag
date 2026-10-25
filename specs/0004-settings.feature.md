@@ -1,5 +1,9 @@
 # 0004 — Settings: LLM provider + indexing configuration
 
+> **Changed by 0010:** the embedding model, dimensions and chunking moved from Settings into
+> each embedding (Embeddings page). Settings keeps the chat provider and connections; Test
+> connection checks chat only.
+
 - **Status:** Done
 - **Depends on:** 0001
 - **Django apps:** `providers` (LLM config) + `rag` (indexing defaults)
@@ -40,54 +44,29 @@ The scenarios run against the real app with a fake OpenAI-compatible provider.
 * Then the API key field says a key ending in "abcd" is saved
 * And no response the browser received contains "sk-acceptance-1234abcd"
 
-## Scenario: AT-0004-02 — Test connection reports success and detects dimensions
+## Scenario: AT-0004-02 — Test connection reports success
 * Given I open the Settings page
 * When I fill in the provider form for the fake provider with API key "sk-good-key"
 * And I press "Test connection"
 * Then the connection results show "Chat: Replied “OK”"
-* And the connection results show "Embeddings: 8 dimensions"
 
 ## Scenario: AT-0004-02 — Test connection shows the provider's error message
 * Given I open the Settings page
 * When I fill in the provider form for the fake provider with API key "bad-key"
 * And I press "Test connection"
 * Then the "Chat" check fails with "Incorrect API key provided"
-* And the "Embeddings" check fails with "Incorrect API key provided"
 
 ## Scenario: AT-0004-03 — Overlap must be smaller than the chunk size
-* Given I open the Indexing settings
+* Given my provider is the fake LLM provider
+* And I start a new embedding
 * When I set the chunk size to 256 and the overlap to 256
 * Then I see "Overlap must be smaller than the chunk size."
-* And the "Save indexing settings" button is disabled
+* And the "Create embedding" button is disabled
 * And the API rejects chunk size 256 with overlap 256
 
-## Scenario: AT-0004-04 — Changing the embedding model asks first, then re-indexes
-* Given I have saved a provider with API key "sk-acceptance-1234abcd"
-* And I open the Settings page
-* When I change the embedding model to "fake-embed-v2"
-* And I press "Save provider"
-* Then I am asked "Re-index all documents?"
-* When I press "Save and re-index"
-* Then I see "Re-index finished"
-* And my saved embedding model is "fake-embed-v2"
-
-## Scenario: AT-0004-04 — Cancelling the re-index keeps the old embedding model
-* Given I have saved a provider with API key "sk-acceptance-1234abcd"
-* And I open the Settings page
-* When I change the embedding model to "fake-embed-v2"
-* And I press "Save provider"
-* And I press "Cancel"
-* Then my saved embedding model is "fake-embed"
-
-## Scenario: AT-0004-04 — Changing chunking settings asks first, then re-indexes
-* Given I open the Indexing settings
-* And I press "Save indexing settings"
-* And I see "Indexing settings saved"
-* When I set the chunk size to 1024 and the overlap to 128
-* And I press "Save indexing settings"
-* Then I am asked "Re-index all documents?"
-* When I press "Save and re-index"
-* Then I see "Re-index finished"
+_AT-0004-04 (changing the embedding model or chunking asks to re-index, and Cancel keeps the old
+settings) moved to spec 0010: the model and chunking now belong to each embedding (AT-0010-08;
+Cancel and chunking changes are covered by pytest in `apps/rag/test_embeddings.py`)._
 
 ## Implementation notes
 - Backend: `apps/providers` (model, Fernet `crypto.py`, `services.py` incl. `client_for(user)` and

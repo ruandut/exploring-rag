@@ -4,9 +4,12 @@ The lower app pushes an event; the higher app's task subscribes with
 `@hatchet.task(on_events=["<key>"])`. Neither imports the other.
 
 Known event keys (keep in sync with ARCHITECTURE.md):
-    document.uploaded            {"document_id", "user_id"}  library → rag: index-document
-    document.reindex_requested   {"document_id", "user_id"}  library → rag: index-document
-    provider.embedding_changed   {"user_id"}                 providers → rag: reindex-user-documents
+    document.uploaded            {"document_id", "user_id"}            library → rag: route-document
+    document.moved               {"document_id", "user_id"}            library → rag: route-document
+    document.reindex_requested   {"document_id", "user_id", "reindex"} library → rag: route-document
+
+route-document works out which embeddings cover the document and queues index-document for
+each (spec 0010). Changing an embedding's model is handled inside rag, so it needs no event.
 """
 
 from django.db import transaction

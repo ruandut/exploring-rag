@@ -18,10 +18,11 @@ from dataclasses import dataclass, field
 
 from openai import BadRequestError, OpenAI
 
-from apps.providers import selectors as provider_selectors
 from apps.providers import services as provider_services
 from apps.rag import generation, retrieval
+from apps.rag import selectors as rag_selectors
 from apps.rag.embedding import make_embedder
+from apps.rag.models import EmbeddingIndex
 
 from .models import Agent
 
@@ -70,8 +71,10 @@ def run(
     emit: Emit,
     is_cancelled: Callable[[], bool] = lambda: False,
     folder_ids: list[int] | None = None,
+    embedding: EmbeddingIndex | None = None,
 ) -> RunResult:
-    """folder_ids overrides agent.folders — used for unsaved agents rebuilt from a snapshot."""
+    """folder_ids overrides agent.folders — used for unsaved agents rebuilt from a snapshot.
+    embedding is what gets searched; the user's oldest embedding when not given."""
     target = provider_services.chat_target(user, connection=agent.connection, model=agent.model)
     result = RunResult(model=target.label)
     question = messages[-1]["content"]
@@ -87,12 +90,14 @@ def run(
         folder_ids = list(agent.folders.values_list("pk", flat=True))
     folder_ids = folder_ids or None  # none = all documents
 
-    # Embeddings always come from the default provider: queries must be embedded by the same
-    # model as the stored chunks, whichever model writes the answer.
-    provider = provider_selectors.get_provider_config(user)
+    # The query is embedded by the embedding's own model and endpoint — vectors are only
+    # comparable with vectors from the same model — whichever model writes the answer.
+    embedding = embedding or rag_selectors.default_embedding(user)
     embed = (
-        make_embedder(provider_services.client_for(user), provider.embedding_model)
-        if provider
+        make_embedder(
+            provider_services.embedding_client(user, embedding.connection), embedding.model
+        )
+        if embedding
         else None
     )
 
@@ -103,6 +108,7 @@ def run(
             user,
             query,
             config=search_cfg,
+            index=embedding,
             folder_ids=folder_ids,
             embed=embed,
             client=target.client,
@@ -113,7 +119,7 @@ def run(
         result.tool_calls.append({"tool": "search_documents", "args": {"query": query}})
         emit({"type": "agent.tool_call", "tool": "search_documents", "args": {"query": query}})
         if embed is None:
-            text, used = "Document search is unavailable: no embedding provider is configured.", []
+            text, used = "Document search is unavailable: no embedding is selected.", []
         else:
             text, used = generation.tool_result(
                 strategy,

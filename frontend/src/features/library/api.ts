@@ -10,7 +10,8 @@ export type Folder = {
   document_count: number;
 };
 
-export type DocumentStatus = "queued" | "indexing" | "ready" | "failed";
+/** not_indexed: no embedding covers the document yet (spec 0010). */
+export type DocumentStatus = "queued" | "indexing" | "ready" | "failed" | "not_indexed";
 
 export type LibraryDocument = {
   id: number;
@@ -34,6 +35,8 @@ export type Chunk = {
   token_count: number;
   dimensions: number;
   embedding_model: string;
+  embedding_id: number;
+  embedding_name: string;
   embedding_preview: number[];
 };
 

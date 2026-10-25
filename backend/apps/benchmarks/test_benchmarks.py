@@ -36,9 +36,7 @@ def no_hatchet(monkeypatch):
 
 @pytest.fixture
 def setup(user):
-    ProviderConfig.objects.create(
-        owner=user, base_url="http://fake/v1", chat_model="fake-chat", embedding_model="e"
-    )
+    ProviderConfig.objects.create(owner=user, base_url="http://fake/v1", chat_model="fake-chat")
     agent = Agent.objects.create(owner=user, name="Docs helper", system_message="Original")
     suite = eval_services.save_suite(
         user,

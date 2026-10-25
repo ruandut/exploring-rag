@@ -116,7 +116,10 @@ def test_reindex_requeues_and_announces(auth_api, user, events, django_capture_o
     assert res.status_code == 202
     assert res.json()["status"] == "queued" and res.json()["error"] == ""
     assert events == [
-        ("document.reindex_requested", {"document_id": doc["id"], "user_id": user.id})
+        (
+            "document.reindex_requested",
+            {"document_id": doc["id"], "user_id": user.id, "reindex": True},
+        )
     ]
 
 

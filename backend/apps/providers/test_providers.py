@@ -16,8 +16,6 @@ PROVIDER = {
     "base_url": "https://api.example.com/v1",
     "api_key": "sk-test-1234567890abcd",
     "chat_model": "gpt-test",
-    "embedding_model": "embed-test",
-    "embedding_dimensions": 1536,
 }
 
 
@@ -90,9 +88,9 @@ def test_at_0004_02_test_connection_reports_success(auth_api, monkeypatch):
     monkeypatch.setattr(services, "build_client", lambda *a, **k: FakeClient())
     res = auth_api.post("/api/providers/test/", PROVIDER, format="json")
     body = res.json()
-    assert body["ok"] is True
-    assert body["chat"]["ok"] and body["embeddings"]["ok"]
-    assert body["embedding_dimensions"] == 768
+    assert body["ok"] is True and body["chat"]["ok"]
+    # Embeddings have their own Test now (spec 0010), on the embedding form.
+    assert "embeddings" not in body
 
 
 def test_at_0004_02_test_connection_shows_the_provider_error(auth_api, monkeypatch):
@@ -101,7 +99,6 @@ def test_at_0004_02_test_connection_shows_the_provider_error(auth_api, monkeypat
     body = auth_api.post("/api/providers/test/", PROVIDER, format="json").json()
     assert body["ok"] is False
     assert body["chat"]["detail"] == "Incorrect API key provided"
-    assert body["embeddings"]["ok"] is True
 
 
 def test_at_0004_02_test_connection_falls_back_to_the_saved_key(auth_api, monkeypatch):
@@ -117,28 +114,17 @@ def test_at_0004_02_test_connection_falls_back_to_the_saved_key(auth_api, monkey
     assert seen["key"] == PROVIDER["api_key"]
 
 
-def test_at_0004_04_changing_embedding_model_needs_confirmation(
-    auth_api, pushed_events, django_capture_on_commit_callbacks
-):
+def test_saving_the_provider_never_reindexes(auth_api, pushed_events):
+    """Embedding models live on each embedding now (spec 0010): nothing to re-index here."""
     auth_api.put(URL, PROVIDER, format="json")
-    changed = {**PROVIDER, "embedding_model": "embed-v2"}
-
-    res = auth_api.put(URL, changed, format="json")
-    assert res.status_code == 409
-    assert res.json()["code"] == "reindex_required"
-    assert ProviderConfig.objects.get().embedding_model == "embed-test"
-
-    with django_capture_on_commit_callbacks(execute=True):
-        res = auth_api.put(URL, {**changed, "confirm_reindex": True}, format="json")
+    res = auth_api.put(URL, {**PROVIDER, "base_url": "https://other.example.com/v1"}, format="json")
     assert res.status_code == 200
-    assert res.json()["reindex_started"] is True
-    assert ProviderConfig.objects.get().embedding_model == "embed-v2"
-    assert pushed_events == [("provider.embedding_changed", {"user_id": res.wsgi_request.user.id})]
-
-
-def test_at_0004_04_other_changes_dont_reindex(auth_api, pushed_events):
-    auth_api.put(URL, PROVIDER, format="json")
-    res = auth_api.put(URL, {**PROVIDER, "chat_model": "gpt-other"}, format="json")
-    assert res.status_code == 200
-    assert res.json()["reindex_started"] is False
     assert pushed_events == []
+
+
+def test_test_embedding_reports_the_dimensions():
+    body = services.test_embedding(client=FakeClient(), model="nomic-embed-text")
+    assert body["ok"] is True and body["dimensions"] == 768
+    failing = FakeClient(fail_embed=_auth_error("Incorrect API key provided"))
+    body = services.test_embedding(client=failing, model="x")
+    assert (body["ok"], body["detail"]) == (False, "Incorrect API key provided")

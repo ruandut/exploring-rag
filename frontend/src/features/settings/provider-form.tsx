@@ -10,56 +10,30 @@ import { cn } from "@/lib/utils";
 import {
   type Check,
   fieldErrors,
-  needsReindexConfirmation,
   type ProviderConfig,
   type SaveProviderInput,
   useSaveProvider,
   useTestConnection,
 } from "./api";
-import { ReindexDialog } from "./reindex-dialog";
 
 const PRESETS = [
-  {
-    name: "OpenAI",
-    base_url: "https://api.openai.com/v1",
-    chat: "gpt-5-mini",
-    embed: "text-embedding-3-small",
-  },
-  {
-    name: "OpenRouter",
-    base_url: "https://openrouter.ai/api/v1",
-    chat: "openai/gpt-5-mini",
-    embed: "",
-  },
-  {
-    name: "Ollama (local)",
-    base_url: "http://localhost:11434/v1",
-    chat: "",
-    embed: "nomic-embed-text",
-  },
+  { name: "OpenAI", base_url: "https://api.openai.com/v1", chat: "gpt-5-mini" },
+  { name: "OpenRouter", base_url: "https://openrouter.ai/api/v1", chat: "openai/gpt-5-mini" },
+  { name: "Ollama (local)", base_url: "http://localhost:11434/v1", chat: "" },
 ];
 
-type Form = {
-  base_url: string;
-  api_key: string;
-  chat_model: string;
-  embedding_model: string;
-  embedding_dimensions: string;
-};
+type Form = { base_url: string; api_key: string; chat_model: string };
 
 function initialForm(saved: ProviderConfig | null): Form {
   return {
     base_url: saved?.base_url ?? "",
     api_key: "",
     chat_model: saved?.chat_model ?? "",
-    embedding_model: saved?.embedding_model ?? "",
-    embedding_dimensions: saved?.embedding_dimensions?.toString() ?? "",
   };
 }
 
 export function ProviderForm({ saved }: { saved: ProviderConfig | null }) {
   const [form, setForm] = useState<Form>(() => initialForm(saved));
-  const [confirming, setConfirming] = useState<string | null>(null);
   const save = useSaveProvider();
   const test = useTestConnection();
   const errors = fieldErrors(save.error);
@@ -67,31 +41,23 @@ export function ProviderForm({ saved }: { saved: ProviderConfig | null }) {
   const set = (key: keyof Form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  function payload(confirm = false): SaveProviderInput {
+  function payload(): SaveProviderInput {
     return {
       base_url: form.base_url.trim(),
       // Blank means "keep the saved key" — the server never sends it back to pre-fill.
       ...(form.api_key ? { api_key: form.api_key } : {}),
       chat_model: form.chat_model.trim(),
-      embedding_model: form.embedding_model.trim(),
-      embedding_dimensions: form.embedding_dimensions ? Number(form.embedding_dimensions) : null,
-      confirm_reindex: confirm,
     };
   }
 
-  function submit(confirm = false) {
-    save.mutate(payload(confirm), {
-      onSuccess: (data) => {
+  function submit() {
+    save.mutate(payload(), {
+      onSuccess: () => {
         setForm((f) => ({ ...f, api_key: "" }));
         toast.success("Provider saved");
-        if (data.reindex_started) toast.info("Re-indexing your documents in the background…");
       },
       onError: (error) => {
-        if (needsReindexConfirmation(error)) {
-          setConfirming((error.body as { detail: string }).detail);
-        } else if (Object.keys(fieldErrors(error)).length === 0) {
-          toast.error("Couldn't save the provider");
-        }
+        if (Object.keys(fieldErrors(error)).length === 0) toast.error("Couldn't save the provider");
       },
     });
   }
@@ -119,7 +85,6 @@ export function ProviderForm({ saved }: { saved: ProviderConfig | null }) {
                 ...f,
                 base_url: p.base_url,
                 chat_model: p.chat || f.chat_model,
-                embedding_model: p.embed || f.embedding_model,
               }))
             }
           >
@@ -158,34 +123,13 @@ export function ProviderForm({ saved }: { saved: ProviderConfig | null }) {
         />
       </Field>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field id="chat_model" label="Chat model" error={errors.chat_model}>
-          <Input id="chat_model" value={form.chat_model} onChange={set("chat_model")} required />
-        </Field>
-        <Field id="embedding_model" label="Embedding model" error={errors.embedding_model}>
-          <Input
-            id="embedding_model"
-            value={form.embedding_model}
-            onChange={set("embedding_model")}
-            required
-          />
-        </Field>
-      </div>
-
       <Field
-        id="embedding_dimensions"
-        label="Embedding dimensions"
-        error={errors.embedding_dimensions}
-        hint="Size of each vector. Test connection detects it for you."
+        id="chat_model"
+        label="Chat model"
+        error={errors.chat_model}
+        hint="Embedding models are chosen per embedding, on the Embeddings page."
       >
-        <Input
-          id="embedding_dimensions"
-          type="number"
-          min={1}
-          className="max-w-40"
-          value={form.embedding_dimensions}
-          onChange={set("embedding_dimensions")}
-        />
+        <Input id="chat_model" value={form.chat_model} onChange={set("chat_model")} required />
       </Field>
 
       {report && (
@@ -195,23 +139,6 @@ export function ProviderForm({ saved }: { saved: ProviderConfig | null }) {
           className="grid gap-2 rounded-lg border p-3 text-sm"
         >
           <CheckRow name="Chat" check={report.chat} />
-          <CheckRow name="Embeddings" check={report.embeddings} />
-          {report.embedding_dimensions &&
-            report.embedding_dimensions.toString() !== form.embedding_dimensions && (
-              <Button
-                type="button"
-                variant="link"
-                className="h-auto justify-start p-0"
-                onClick={() =>
-                  setForm((f) => ({
-                    ...f,
-                    embedding_dimensions: String(report.embedding_dimensions),
-                  }))
-                }
-              >
-                Use detected {report.embedding_dimensions} dimensions
-              </Button>
-            )}
         </div>
       )}
 
@@ -221,8 +148,7 @@ export function ProviderForm({ saved }: { saved: ProviderConfig | null }) {
           variant="outline"
           disabled={test.isPending || !form.base_url}
           onClick={() => {
-            const { base_url, api_key, chat_model, embedding_model } = payload();
-            test.mutate({ base_url, api_key, chat_model, embedding_model });
+            test.mutate(payload());
           }}
         >
           {test.isPending ? (
@@ -236,16 +162,6 @@ export function ProviderForm({ saved }: { saved: ProviderConfig | null }) {
           {save.isPending ? "Saving…" : "Save provider"}
         </Button>
       </div>
-
-      <ReindexDialog
-        open={confirming !== null}
-        detail={confirming ?? ""}
-        onCancel={() => setConfirming(null)}
-        onConfirm={() => {
-          setConfirming(null);
-          submit(true);
-        }}
-      />
     </form>
   );
 }

@@ -34,6 +34,11 @@ export class AppWorld extends World {
   conversationId?: number;
   /** The agent run a scenario cancelled. */
   cancelledRunId?: string;
+  /** The embedding a scenario last created or acted on. */
+  lastEmbedding?: string;
+  /** fakeLlm.embedded / wsEvents lengths before an action, to check only what came after. */
+  embeddedMark?: number;
+  wsMark?: number;
 
   constructor(options: IWorldOptions) {
     super(options);

@@ -13,11 +13,13 @@ import {
 export function ReindexDialog({
   open,
   detail,
+  title = "Re-index all documents?",
   onCancel,
   onConfirm,
 }: {
   open: boolean;
   detail: string;
+  title?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -25,10 +27,10 @@ export function ReindexDialog({
     <AlertDialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Re-index all documents?</AlertDialogTitle>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>
-            {detail} Existing embeddings can&apos;t be compared with new ones, so every document is
-            processed again in the background (a Hatchet run). Search may be incomplete until it
+            {detail} Existing vectors can&apos;t be compared with new ones, so every document is
+            processed again in the background (Hatchet runs). Search may be incomplete until it
             finishes.
           </AlertDialogDescription>
         </AlertDialogHeader>

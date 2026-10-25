@@ -15,21 +15,15 @@ class ProviderConfig(TimeStampedModel):
     api_key_encrypted = models.TextField(blank=True)
     api_key_last4 = models.CharField(max_length=4, blank=True)
     chat_model = models.CharField(max_length=200)
-    embedding_model = models.CharField(max_length=200)
-    # Vector size the embedding model returns. Detected by "Test connection"; spec 0003 uses it
-    # for the pgvector column.
-    embedding_dimensions = models.PositiveIntegerField(null=True, blank=True)
+    # Embedding models live on each embedding (rag.EmbeddingIndex, spec 0010), not here.
 
     def __str__(self):
         return f"{self.owner} → {self.base_url}"
 
 
 class Connection(TimeStampedModel):
-    """An extra OpenAI-compatible endpoint an agent can use for chat, e.g. a local Ollama.
-
-    The default ProviderConfig stays responsible for embeddings (every chunk must be embedded
-    by the same model); connections only add more choices for answering.
-    """
+    """An extra OpenAI-compatible endpoint, e.g. a local Ollama: for chatting, and for
+    embedding (an embedding names its connection, or the default provider)."""
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="connections"

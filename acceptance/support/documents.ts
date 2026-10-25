@@ -2,12 +2,20 @@
 // uploading via the UI is what spec 0003 tests; other specs just need the data in place.
 import assert from "node:assert/strict";
 
+import { ensureDefaultEmbedding } from "./embeddings.ts";
 import type { AppWorld } from "./world.ts";
 
 export const INDEXING_TIMEOUT = 25_000;
 
-/** Upload a fixture (optionally into a folder) and wait until it's Ready. Returns its id. */
-export async function indexDocument(world: AppWorld, name: string, folder?: number): Promise<number> {
+/** Upload a fixture (optionally into a folder) and wait until it's Ready. Returns its id.
+ *  Since spec 0010 a document is only indexed by an embedding that covers it, so this makes
+ *  sure the default "My documents" embedding (all documents, fake model) exists first. */
+export async function indexDocument(
+  world: AppWorld,
+  name: string,
+  folder?: number,
+): Promise<number> {
+  await ensureDefaultEmbedding(world);
   const res = await world.api.upload([name], folder);
   assert.equal(res.status, 201, res.text);
   const id: number = res.body[0].id;

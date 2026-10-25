@@ -1,3 +1,4 @@
+from django.db.models import ProtectedError
 from openai import OpenAIError
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action, api_view
@@ -7,7 +8,6 @@ from . import selectors, services
 from .serializers import (
     ConnectionSerializer,
     ProviderConfigSerializer,
-    SaveProviderSerializer,
     TestConnectionSerializer,
 )
 
@@ -20,25 +20,12 @@ def provider_config(request):
             return Response(status=status.HTTP_204_NO_CONTENT)
         return Response(ProviderConfigSerializer(config).data)
 
-    payload = SaveProviderSerializer(
+    payload = ProviderConfigSerializer(
         instance=selectors.get_provider_config(request.user), data=request.data
     )
     payload.is_valid(raise_exception=True)
-    data = dict(payload.validated_data)
-    confirm = data.pop("confirm_reindex")
-    try:
-        config, reindex_started = services.save_provider_config(
-            request.user, data=data, confirm_reindex=confirm
-        )
-    except services.ReindexConfirmationRequired:
-        return Response(
-            {
-                "code": "reindex_required",
-                "detail": "Changing the endpoint or embedding model re-indexes all your documents.",
-            },
-            status=status.HTTP_409_CONFLICT,
-        )
-    return Response({**ProviderConfigSerializer(config).data, "reindex_started": reindex_started})
+    config = services.save_provider_config(request.user, data=dict(payload.validated_data))
+    return Response(ProviderConfigSerializer(config).data)
 
 
 @api_view(["POST"])
@@ -91,6 +78,16 @@ class ConnectionViewSet(
         services.save_connection(
             self.request.user, data=serializer.validated_data, instance=serializer.instance
         )
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            # An embedding still embeds through it; deleting would strand its vectors.
+            return Response(
+                {"detail": "An embedding uses this connection. Change or delete it first."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
     @action(detail=True, methods=["get"])
     def models(self, request, pk=None):

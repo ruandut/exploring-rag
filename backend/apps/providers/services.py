@@ -6,18 +6,9 @@ from dataclasses import asdict, dataclass
 from django.db import transaction
 from openai import OpenAI, OpenAIError
 
-from apps.jobs.events import push_event_on_commit
-
 from .crypto import encrypt
 from .models import Connection, ProviderConfig
 from .selectors import get_api_key, get_provider_config
-
-# Fields whose change invalidates every stored embedding.
-EMBEDDING_FIELDS = ("base_url", "embedding_model", "embedding_dimensions")
-
-
-class ReindexConfirmationRequired(Exception):
-    """Saving would change embeddings; the caller must confirm a full re-index."""
 
 
 def build_client(base_url: str, api_key: str, *, timeout: float = 30.0) -> OpenAI:
@@ -33,6 +24,13 @@ def client_for(user) -> OpenAI:
     if config is None:
         raise ValueError("No LLM provider configured")
     return build_client(config.base_url, get_api_key(config))
+
+
+def embedding_client(user, connection: Connection | None) -> OpenAI:
+    """The client an embedding embeds with: its connection, or the default provider."""
+    if connection is not None:
+        return build_client(connection.base_url, get_api_key(connection))
+    return client_for(user)
 
 
 @dataclass
@@ -80,20 +78,15 @@ def save_connection(user, *, data: dict, instance: Connection | None = None) -> 
 
 
 @transaction.atomic
-def save_provider_config(user, *, data: dict, confirm_reindex: bool) -> tuple[ProviderConfig, bool]:
-    """Create or update the user's provider. Returns (config, reindex_started).
+def save_provider_config(user, *, data: dict) -> ProviderConfig:
+    """Create or update the user's provider.
 
-    `data` may omit `api_key` to keep the stored one; an empty string clears it.
+    `data` may omit `api_key` to keep the stored one; an empty string clears it. Embeddings
+    using the default provider pick up a new URL or key on their next indexing run; their
+    model is their own, so nothing is re-indexed here.
     """
-    config = get_provider_config(user)
-    embeddings_change = config is not None and any(
-        k in data and data[k] != getattr(config, k) for k in EMBEDDING_FIELDS
-    )
-    if embeddings_change and not confirm_reindex:
-        raise ReindexConfirmationRequired
-
-    config = config or ProviderConfig(owner=user)
-    for field in ("base_url", "chat_model", "embedding_model", "embedding_dimensions"):
+    config = get_provider_config(user) or ProviderConfig(owner=user)
+    for field in ("base_url", "chat_model"):
         if field in data:
             setattr(config, field, data[field])
     if "api_key" in data:
@@ -101,11 +94,7 @@ def save_provider_config(user, *, data: dict, confirm_reindex: bool) -> tuple[Pr
         config.api_key_encrypted = encrypt(key) if key else ""
         config.api_key_last4 = key[-4:] if key else ""
     config.save()
-
-    if embeddings_change:
-        # providers sits below rag, so it announces the change instead of calling rag.
-        push_event_on_commit("provider.embedding_changed", {"user_id": user.id})
-    return config, embeddings_change
+    return config
 
 
 @dataclass
@@ -119,8 +108,6 @@ class Check:
 class ConnectionReport:
     ok: bool
     chat: Check
-    embeddings: Check
-    embedding_dimensions: int | None
 
 
 def error_message(exc: Exception) -> str:
@@ -133,8 +120,8 @@ def error_message(exc: Exception) -> str:
     return str(exc) or exc.__class__.__name__
 
 
-def test_connection(*, base_url: str, api_key: str, chat_model: str, embedding_model: str) -> dict:
-    """Make one tiny chat completion and one embedding call against the endpoint."""
+def test_connection(*, base_url: str, api_key: str, chat_model: str) -> dict:
+    """Make one tiny chat completion against the endpoint. (Embeddings have their own Test.)"""
     client = build_client(base_url, api_key, timeout=20.0)
 
     start = time.monotonic()
@@ -149,14 +136,16 @@ def test_connection(*, base_url: str, api_key: str, chat_model: str, embedding_m
     except OpenAIError as exc:
         chat = Check(False, error_message(exc))
 
-    dims = None
+    return asdict(ConnectionReport(chat.ok, chat))
+
+
+def test_embedding(*, client: OpenAI, model: str) -> dict:
+    """One embedding call: does the model answer, and how long are its vectors?"""
     start = time.monotonic()
     try:
-        emb = client.embeddings.create(model=embedding_model, input="ping")
-        dims = len(emb.data[0].embedding)
-        embeddings = Check(True, f"{dims} dimensions", int((time.monotonic() - start) * 1000))
+        emb = client.embeddings.create(model=model, input="ping")
     except OpenAIError as exc:
-        embeddings = Check(False, error_message(exc))
-
-    report = ConnectionReport(chat.ok and embeddings.ok, chat, embeddings, dims)
-    return asdict(report)
+        return {"ok": False, "detail": error_message(exc), "latency_ms": None, "dimensions": None}
+    dims = len(emb.data[0].embedding)
+    latency = int((time.monotonic() - start) * 1000)
+    return {"ok": True, "detail": f"{dims} dimensions", "latency_ms": latency, "dimensions": dims}

@@ -1,8 +1,8 @@
 """Write-side logic for the library: the only code that changes Folder / Document rows.
 
 library sits below rag, so it never calls the indexer. It announces work with Hatchet events
-(`document.uploaded`, `document.reindex_requested`) that rag's index-document task listens to,
-and rag reports progress back through `set_status`.
+(`document.uploaded`, `document.moved`, `document.reindex_requested`) that rag's route-document
+task listens to, and rag reports progress back through `set_status`.
 """
 
 from pathlib import PurePath
@@ -45,6 +45,14 @@ def update_folder(
             node = node.parent
         folder.parent = parent
     folder.save()
+    if parent is not ...:
+        # Every document below it may now be inside (or outside) an embedding's folders.
+        for doc_id in Document.objects.filter(folder__in=_subtree(folder)).values_list(
+            "pk", flat=True
+        ):
+            push_event_on_commit(
+                "document.moved", {"document_id": doc_id, "user_id": folder.owner_id}
+            )
     return folder
 
 
@@ -104,6 +112,10 @@ def move_document(document: Document, *, folder: Folder | None) -> Document:
         raise ValidationError("Folder not found")
     document.folder = folder
     document.save(update_fields=["folder", "updated_at"])
+    # A move can take a document into or out of an embedding's folders.
+    push_event_on_commit(
+        "document.moved", {"document_id": document.pk, "user_id": document.owner_id}
+    )
     return document
 
 
@@ -118,7 +130,8 @@ def delete_document(document: Document) -> None:
 def request_reindex(document: Document) -> Document:
     set_status(document, DocumentStatus.QUEUED)
     push_event_on_commit(
-        "document.reindex_requested", {"document_id": document.pk, "user_id": document.owner_id}
+        "document.reindex_requested",
+        {"document_id": document.pk, "user_id": document.owner_id, "reindex": True},
     )
     return document
 

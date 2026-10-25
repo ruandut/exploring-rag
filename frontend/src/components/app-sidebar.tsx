@@ -6,6 +6,7 @@ import {
   ChevronsUpDown,
   FlaskConical,
   FolderOpen,
+  Layers,
   LogOut,
   MessageSquare,
   Monitor,
@@ -46,6 +47,7 @@ const NAV = [
   { to: "/chat", label: "Chat", icon: MessageSquare },
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/library", label: "Library", icon: FolderOpen },
+  { to: "/embeddings", label: "Embeddings", icon: Layers },
   { to: "/benchmarks", label: "Benchmarks", icon: FlaskConical },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;

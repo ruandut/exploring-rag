@@ -8,6 +8,7 @@ from openai import BadRequestError
 from apps.agents import runner
 from apps.agents.models import Agent
 from apps.providers.models import Connection, ProviderConfig
+from apps.rag.models import EmbeddingIndex
 from apps.rag.retrieval import Retrieved
 
 
@@ -44,9 +45,8 @@ class ScriptedModel:
 
 @pytest.fixture
 def agent(user):
-    ProviderConfig.objects.create(
-        owner=user, base_url="http://fake/v1", chat_model="fake-chat", embedding_model="e"
-    )
+    ProviderConfig.objects.create(owner=user, base_url="http://fake/v1", chat_model="fake-chat")
+    EmbeddingIndex.objects.create(owner=user, name="All", model="e", all_documents=True)
     return Agent.objects.create(owner=user, name="Helper", system_message="Be brief.")
 
 
