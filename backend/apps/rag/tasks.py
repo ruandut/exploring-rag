@@ -36,6 +36,9 @@ class IndexDocumentInput(BaseModel):
     retries=INDEX_RETRIES,
     backoff_factor=2.0,
     execution_timeout="10m",
+    # Documents queue behind the 3-per-user limit; a big upload must not be cancelled by
+    # Hatchet's default 5-minute schedule timeout while it waits its turn.
+    schedule_timeout="6h",
     # Up to 3 documents per user at once; other users' uploads interleave fairly.
     concurrency=ConcurrencyExpression(
         expression="string(input.user_id)",

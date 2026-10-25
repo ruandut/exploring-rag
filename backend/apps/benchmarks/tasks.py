@@ -28,6 +28,10 @@ class CaseInput(BaseModel):
     name="benchmark-case",
     input_validator=CaseInput,
     execution_timeout="10m",
+    # Cases queue behind the 2-per-user concurrency limit. Hatchet's default schedule timeout
+    # (5 minutes) cancelled every case still queued after 5 minutes — with a slow local model
+    # that was most of an 84-case suite. Queued cases are cheap, so let them wait.
+    schedule_timeout="12h",
     retries=0,
     concurrency=ConcurrencyExpression(
         expression="string(input.user_id)",
@@ -52,7 +56,14 @@ class RunInput(BaseModel):
     result_ids: list[int]
 
 
-@hatchet.task(name="benchmark-run", input_validator=RunInput, execution_timeout="60m", retries=0)
+# The parent mostly waits for its children, so it may run as long as they take.
+@hatchet.task(
+    name="benchmark-run",
+    input_validator=RunInput,
+    execution_timeout="12h",
+    schedule_timeout="12h",
+    retries=0,
+)
 def benchmark_run(input: RunInput, ctx: Context) -> dict:
     close_old_connections()
     # Called from inside a task, these become child runs of this one in the Hatchet UI.

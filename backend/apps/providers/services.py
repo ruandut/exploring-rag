@@ -10,8 +10,13 @@ from .crypto import encrypt
 from .models import Connection, ProviderConfig
 from .selectors import get_api_key, get_provider_config
 
+# Local reasoning models (e.g. Gemma on Ollama) can think for a minute or more before the first
+# token, and judges ask for long JSON verdicts, so 30 seconds was too short. Quick calls (Test
+# connection, model lists) pass their own shorter timeout.
+LLM_TIMEOUT_SECONDS = 300.0
 
-def build_client(base_url: str, api_key: str, *, timeout: float = 30.0) -> OpenAI:
+
+def build_client(base_url: str, api_key: str, *, timeout: float = LLM_TIMEOUT_SECONDS) -> OpenAI:
     # Local servers like Ollama ignore the key, but the SDK requires a non-empty one.
     return OpenAI(
         base_url=base_url, api_key=api_key or "not-needed", timeout=timeout, max_retries=0
