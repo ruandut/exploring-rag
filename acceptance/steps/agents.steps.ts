@@ -1,0 +1,241 @@
+// Steps for specs/0005-agents-and-chat.feature.md
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+import { Given, Then, When } from "@cucumber/cucumber";
+
+import { ChatPage } from "../pages/chat-page.ts";
+import { FIXTURES } from "../pages/library-page.ts";
+import { createAgent, createFolder, indexDocument } from "../support/documents.ts";
+import { APP_URL } from "../support/env.ts";
+import type { AppWorld } from "../support/world.ts";
+
+const BOTH_ANSWER = "When are the office plants watered?";
+
+async function askAgent(world: AppWorld, agent: string, question: string) {
+  const chat = new ChatPage(world.page);
+  await chat.openNew();
+  await chat.selectAgent(agent);
+  await chat.ask(question);
+  return chat;
+}
+
+// --- agents -----------------------------------------------------------------------------
+
+async function openNewAgentForm(world: AppWorld, name: string) {
+  await world.page.goto(`${APP_URL}/agents`);
+  await world.page.getByRole("button", { name: "New agent" }).click();
+  await world.page.getByLabel("Name", { exact: true }).fill(name);
+}
+
+async function saveAgentForm(world: AppWorld, name: string) {
+  await world.page.getByRole("button", { name: "Save agent" }).click();
+  await world.page.getByRole("list", { name: "Agents" }).getByText(name, { exact: true }).waitFor();
+}
+
+When(
+  "I create the agent {string} with the system message {string}",
+  async function (this: AppWorld, name: string, message: string) {
+    await openNewAgentForm(this, name);
+    await this.page.getByLabel("System message").fill(message);
+    await saveAgentForm(this, name);
+  },
+);
+
+When(
+  "I create the agent {string} using the model {string} from {string}",
+  async function (this: AppWorld, name: string, model: string, connection: string) {
+    await openNewAgentForm(this, name);
+    await this.page.getByRole("combobox", { name: "Connection" }).click();
+    await this.page.getByRole("option", { name: connection, exact: true }).click();
+    await this.page.getByLabel("Model", { exact: true }).fill(model);
+    await saveAgentForm(this, name);
+  },
+);
+
+Then("I can choose {string} in Chat", async function (this: AppWorld, name: string) {
+  const chat = new ChatPage(this.page);
+  await chat.openNew();
+  await chat.selectAgent(name);
+});
+
+Given("the agent {string} can search all my folders", async function (this: AppWorld, name: string) {
+  await createAgent(this, name);
+});
+
+Given(
+  "the agent {string} can only search {string}",
+  async function (this: AppWorld, name: string, folder: string) {
+    await createAgent(this, name, { folders: [this.folders[folder]] });
+  },
+);
+
+Given(
+  "the agent {string} uses the model {string} from my default provider",
+  async function (this: AppWorld, name: string, model: string) {
+    await createAgent(this, name, { model });
+  },
+);
+
+Given(
+  "an agent with dense retrieval and an identical agent with hybrid retrieval",
+  async function (this: AppWorld) {
+    for (const retrieval of ["dense", "hybrid"]) {
+      await createAgent(this, retrieval === "dense" ? "Dense" : "Hybrid", {
+        rag_config: { retrieval, top_k: 2 },
+      });
+    }
+  },
+);
+
+Given(
+  "I have a model connection {string} to the fake LLM provider",
+  async function (this: AppWorld, name: string) {
+    const res = await this.api.post("/api/providers/connections/", {
+      name,
+      base_url: this.fakeLlm.baseUrl,
+    });
+    assert.equal(res.status, 201, res.text);
+  },
+);
+
+// --- documents --------------------------------------------------------------------------
+
+Given(
+  "{string} containing {string} is indexed",
+  async function (this: AppWorld, name: string, text: string) {
+    assert.ok(readFileSync(`${FIXTURES}${name}`, "utf8").includes(text), `${name} lacks "${text}"`);
+    await indexDocument(this, name);
+  },
+);
+
+Given(
+  "{string} is indexed in {string} and {string} in {string}",
+  async function (this: AppWorld, a: string, folderA: string, b: string, folderB: string) {
+    await indexDocument(this, a, await createFolder(this, folderA));
+    await indexDocument(this, b, await createFolder(this, folderB));
+  },
+);
+
+Given(
+  "{string} is indexed with one chunk per heading",
+  async function (this: AppWorld, name: string) {
+    const res = await this.api.put("/api/rag/indexing-config/", {
+      strategy: "markdown",
+      chunk_size: 512,
+      chunk_overlap: 0,
+      confirm_reindex: true,
+    });
+    assert.equal(res.status, 200, res.text);
+    await indexDocument(this, name);
+  },
+);
+
+// --- asking -------------------------------------------------------------------------------
+
+When("I ask {string} {string}", async function (this: AppWorld, agent: string, question: string) {
+  await askAgent(this, agent, question);
+});
+
+When("I ask {string} a question both documents answer", async function (this: AppWorld, agent: string) {
+  await askAgent(this, agent, BOTH_ANSWER);
+});
+
+When("I ask {string} a long question", async function (this: AppWorld, agent: string) {
+  await askAgent(this, agent, "Give me a long answer about our refunds.");
+});
+
+When("I ask both {string}", async function (this: AppWorld, question: string) {
+  this.retrievedBy = {};
+  for (const agent of ["Dense", "Hybrid"]) {
+    const chat = await askAgent(this, agent, question);
+    await chat.waitUntilFinished();
+    this.retrievedBy[agent] = await chat.retrieved();
+  }
+});
+
+// --- outcomes ----------------------------------------------------------------------------
+
+Then("the answer cites {string}", async function (this: AppWorld, document: string) {
+  const chat = new ChatPage(this.page);
+  await chat.waitUntilFinished();
+  const cited = await chat.citations();
+  assert.ok(
+    cited.some((c) => c.startsWith(`${document}#`)),
+    `Citations: ${cited.join(", ") || "none"}`,
+  );
+});
+
+Then("every cited chunk is among the retrieved chunks shown", async function (this: AppWorld) {
+  const chat = new ChatPage(this.page);
+  const cited = await chat.citations();
+  const retrieved = (await chat.retrieved()).map((r) => r.tag);
+  assert.ok(cited.length > 0, "No citations");
+  for (const tag of cited) assert.ok(retrieved.includes(tag), `${tag} not in ${retrieved.join(", ")}`);
+});
+
+Then("no retrieved chunk comes from {string}", async function (this: AppWorld, document: string) {
+  const chat = new ChatPage(this.page);
+  await chat.waitUntilFinished();
+  const retrieved = await chat.retrieved();
+  assert.ok(retrieved.length > 0, "Nothing was retrieved");
+  assert.ok(
+    retrieved.every((r) => !r.tag.startsWith(`${document}#`)),
+    retrieved.map((r) => r.tag).join(", "),
+  );
+});
+
+Then(
+  "the retrieved chunks differ and the hybrid agent's include the {string} chunk",
+  async function (this: AppWorld, term: string) {
+    const dense = this.retrievedBy.Dense.map((r) => r.tag);
+    const hybrid = this.retrievedBy.Hybrid;
+    assert.notDeepEqual(dense, hybrid.map((r) => r.tag), "Both agents retrieved the same chunks");
+    assert.ok(hybrid.some((r) => r.text.includes(term)), `Hybrid: ${hybrid.map((r) => r.tag)}`);
+    assert.ok(
+      !this.retrievedBy.Dense.some((r) => r.text.includes(term)),
+      "Dense unexpectedly found it too — the scenario no longer shows the difference",
+    );
+  },
+);
+
+Then("the partial answer stays visible marked {string}", async function (this: AppWorld, mark: string) {
+  const chat = new ChatPage(this.page);
+  const answer = await chat.waitUntilFinished();
+  await answer.getByText(mark).waitFor();
+  const text = (await answer.getByLabel("Answer text").textContent()) ?? "";
+  assert.ok(text.length > 10, "The partial answer disappeared");
+  assert.ok(!text.includes("detail79"), "The answer finished — it wasn't stopped mid-way");
+});
+
+Then("the answer comes from {string}", async function (this: AppWorld, label: string) {
+  const answer = await new ChatPage(this.page).waitUntilFinished();
+  await answer.getByText(label, { exact: true }).waitFor();
+  const model = label.split(" · ").at(-1)!;
+  assert.ok(
+    this.fakeLlm.requests.some((r) => r.includes("/chat/completions") && r.endsWith(` ${model}`)),
+    `The provider never received a request for ${model}`,
+  );
+});
+
+// --- conversations -------------------------------------------------------------------------
+
+Given("I had a conversation with {string}", async function (this: AppWorld, agent: string) {
+  await createAgent(this, agent);
+  const chat = await askAgent(this, agent, "Hello there");
+  await chat.waitUntilFinished();
+  await this.page.waitForURL(/[?&]c=\d+/);
+});
+
+When("I reload the page", async function (this: AppWorld) {
+  await this.page.goto(`${APP_URL}/chat`);
+  await this.page.reload();
+});
+
+Then("I can open that conversation and see its messages", async function (this: AppWorld) {
+  const list = this.page.getByRole("navigation", { name: "Conversations" });
+  await list.getByRole("link", { name: /Hello there/ }).click();
+  await this.page.getByText("Hello there", { exact: true }).last().waitFor();
+  const answer = new ChatPage(this.page).latestAnswer;
+  await answer.getByLabel("Answer text").filter({ hasText: /\w{3,}/ }).waitFor();
+});

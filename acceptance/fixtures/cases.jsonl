@@ -1,0 +1,5 @@
+{"kind": "qa", "question": "How long can unused leave carry over?", "reference_answer": "Three months", "relevant_documents": ["handbook.md"], "evidence": "carries over for three months"}
+{"kind": "qa", "question": "Where do refunds go?", "reference_answer": "Back to the original payment method", "relevant_documents": ["handbook.md"], "evidence": "original payment method"}
+{"kind": "qa", "question": "What should I do with suspicious emails?", "reference_answer": "Report them to the security team", "relevant_documents": ["handbook.md"]}
+{"kind": "qa", "question": "What happens after 30 days?", "reference_answer": "Store credit instead of a refund", "relevant_documents": ["handbook.md"], "evidence": "store credit"}
+{"kind": "refusal", "question": "What is the capital of Atlantis?"}
