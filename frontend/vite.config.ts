@@ -34,6 +34,15 @@ export default defineConfig({
     },
   },
   plugins: lazyPlugins(() => [
+    {
+      // Vite only watches its own root, plus files it has already imported. Without this, a spec
+      // added to ../specs after `vp dev` started never reaches the import.meta.glob on the
+      // System Design page until the server restarts.
+      name: "watch-specs",
+      configureServer(server) {
+        server.watcher.add(path.resolve(import.meta.dirname, "../specs"));
+      },
+    },
     // Must come before react(): generates src/routeTree.gen.ts from src/routes/.
     tanstackRouter({ target: "react", autoCodeSplitting: true }),
     react(),
