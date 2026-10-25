@@ -109,10 +109,13 @@ export function EmbeddingForm({
                   <p className="text-sm text-muted-foreground">No folders yet.</p>
                 )}
                 {allFolders.data?.map((f) => (
-                  <label key={f.id} className="flex items-center gap-2 text-sm">
+                  <label
+                    key={f.id}
+                    className="flex items-start gap-2 text-sm [overflow-wrap:anywhere]"
+                  >
                     <input
                       type="checkbox"
-                      className="size-4 accent-primary"
+                      className="mt-0.5 size-4 shrink-0 accent-primary"
                       checked={folders.includes(f.id)}
                       onChange={(e) => setFolders((fs) => toggle(fs, f.id, e.target.checked))}
                     />
@@ -128,10 +131,13 @@ export function EmbeddingForm({
                   <p className="text-sm text-muted-foreground">No documents yet.</p>
                 )}
                 {allDocs.data?.map((d) => (
-                  <label key={d.id} className="flex items-center gap-2 text-sm">
+                  <label
+                    key={d.id}
+                    className="flex items-start gap-2 text-sm [overflow-wrap:anywhere]"
+                  >
                     <input
                       type="checkbox"
-                      className="size-4 accent-primary"
+                      className="mt-0.5 size-4 shrink-0 accent-primary"
                       checked={documents.includes(d.id)}
                       onChange={(e) => setDocuments((ds) => toggle(ds, d.id, e.target.checked))}
                     />
@@ -169,7 +175,7 @@ export function EmbeddingForm({
             </SelectContent>
           </Select>
         </Field>
-        <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
+        <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem]">
           <Field id="embedding-model" label="Embedding model" error={errors.model}>
             <ModelCombobox
               id="embedding-model"
@@ -250,7 +256,7 @@ export function EmbeddingForm({
           error={errors.strategy}
         >
           <Select value={strategy} onValueChange={(v) => setStrategy(v as Strategy)}>
-            <SelectTrigger id="strategy" className="w-64">
+            <SelectTrigger id="strategy" className="w-full sm:w-64">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

@@ -83,7 +83,7 @@ export function ModelCombobox({
           role="combobox"
           aria-label={label}
           aria-expanded={open}
-          className={cn("w-full justify-between font-normal", className)}
+          className={cn("w-full min-w-0 justify-between font-normal", className)}
         >
           <span className={cn("truncate", !value && "text-muted-foreground")}>
             {value || placeholder}

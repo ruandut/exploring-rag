@@ -127,4 +127,9 @@
   html {
     @apply font-sans;
   }
+  /* Browsers give fieldsets min-inline-size: min-content, so a fieldset never shrinks below its
+     widest child and pushes narrow sheets into horizontal scroll. Let them shrink like a div. */
+  fieldset {
+    min-width: 0;
+  }
 }
