@@ -6,6 +6,7 @@ from rest_framework_simplejwt.tokens import AccessToken
 from apps.agents.models import Agent
 from apps.chat import services
 from apps.chat.models import Conversation, Message
+from apps.rag.models import EmbeddingIndex
 from apps.realtime.consumers import EventsConsumer
 
 
@@ -15,7 +16,7 @@ def agent(user):
 
 
 def test_begin_turn_starts_a_conversation_and_returns_history(db, user, agent):
-    convo, history = services.begin_turn(
+    convo, history, _ = services.begin_turn(
         user, agent_key=str(agent.pk), conversation_id=None, text="Hi there"
     )
     assert convo.title == "Hi there" and convo.agent == agent
@@ -26,7 +27,7 @@ def test_begin_turn_starts_a_conversation_and_returns_history(db, user, agent):
         reply=services.ReplyAccumulator(text="Hello!", finished=True),
         cancelled=False,
     )
-    _, history = services.begin_turn(
+    _, history, _ = services.begin_turn(
         user, agent_key=str(agent.pk), conversation_id=convo.pk, text="And again"
     )
     assert [m["content"] for m in history] == ["Hi there", "Hello!", "And again"]
@@ -35,7 +36,7 @@ def test_begin_turn_starts_a_conversation_and_returns_history(db, user, agent):
 def test_other_users_agents_and_conversations_are_rejected(db, user, other_user, agent):
     with pytest.raises(services.UnknownTarget):
         services.begin_turn(other_user, agent_key=str(agent.pk), conversation_id=None, text="x")
-    convo, _ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="x")
+    convo, *_ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="x")
     with pytest.raises(services.UnknownTarget):
         services.begin_turn(other_user, agent_key="demo", conversation_id=convo.pk, text="x")
 
@@ -50,13 +51,13 @@ def test_other_users_agents_and_conversations_are_rejected(db, user, other_user,
     ],
 )
 def test_reply_status(db, user, reply, cancelled, status):
-    convo, _ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="x")
+    convo, *_ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="x")
     msg = services.save_reply(convo.pk, run_id="r", reply=reply, cancelled=cancelled)
     assert msg.status == status
 
 
 def test_conversations_api_is_private(db, user, other_user, auth_api):
-    convo, _ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="Hello")
+    convo, *_ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="Hello")
     assert [c["title"] for c in auth_api.get("/api/chat/conversations/").json()] == ["Hello"]
     detail = auth_api.get(f"/api/chat/conversations/{convo.pk}/").json()
     assert [m["role"] for m in detail["messages"]] == ["user"]
@@ -67,7 +68,7 @@ def test_conversations_api_is_private(db, user, other_user, auth_api):
 
 @pytest.mark.django_db(transaction=True)
 async def test_ask_streams_and_saves_the_reply(user, agent, monkeypatch):
-    async def fake_start(user, agent_key, messages):
+    async def fake_start(user, agent_key, messages, **choices):
         return "run-1"
 
     async def fake_relay(conn, run_id, *, fallback_type, error_type, on_event):
@@ -103,6 +104,105 @@ async def test_ask_streams_and_saves_the_reply(user, agent, monkeypatch):
     assert Message  # imported for readability of the model under test
 
 
+# --- spec 0010: the chat picks agent + embedding + model -------------------------------------
+
+
+def emb(user, name):
+    return EmbeddingIndex.objects.create(owner=user, name=name, model="m", all_documents=True)
+
+
+def test_at_0010_13_a_new_chat_remembers_its_embedding_and_model(db, user, agent):
+    small = emb(user, "Small")
+    convo, _, settings = services.begin_turn(
+        user,
+        agent_key=str(agent.pk),
+        conversation_id=None,
+        text="Hi",
+        embedding_id=small.pk,
+        connection_id=None,
+        model="fake-chat",
+    )
+    assert (convo.embedding, convo.embedding_name, convo.model) == (small, "Small", "fake-chat")
+    assert (settings.embedding_id, settings.model, settings.agent_name) == (
+        small.pk,
+        "fake-chat",
+        "Helper",
+    )
+    # Next message without choices: the conversation keeps them.
+    _, _, again = services.begin_turn(
+        user, agent_key=str(agent.pk), conversation_id=convo.pk, text="More"
+    )
+    assert again.embedding_id == small.pk and again.model == "fake-chat"
+
+
+def test_at_0010_15_switching_the_embedding_applies_from_the_next_message(db, user, agent):
+    small, wide = emb(user, "Small"), emb(user, "Wide")
+    convo, _, first = services.begin_turn(
+        user, agent_key=str(agent.pk), conversation_id=None, text="a", embedding_id=small.pk
+    )
+    services.save_reply(
+        convo.pk,
+        run_id="r1",
+        reply=services.ReplyAccumulator(text="one", finished=True),
+        cancelled=False,
+        settings=first,
+    )
+    _, _, second = services.begin_turn(
+        user, agent_key=str(agent.pk), conversation_id=convo.pk, text="b", embedding_id=wide.pk
+    )
+    services.save_reply(
+        convo.pk,
+        run_id="r2",
+        reply=services.ReplyAccumulator(text="two", finished=True),
+        cancelled=False,
+        settings=second,
+    )
+    replies = convo.messages.filter(role="assistant").order_by("created_at", "pk")
+    assert [m.metadata["embedding"]["name"] for m in replies] == ["Small", "Wide"]
+    assert replies[0].metadata["agent"] == "Helper"
+
+
+def test_choosing_no_embedding_searches_nothing(db, user, agent):
+    emb(user, "Small")
+    convo, _, settings = services.begin_turn(
+        user, agent_key=str(agent.pk), conversation_id=None, text="a", embedding_id=None
+    )
+    assert settings.embedding_id is None and convo.embedding_name == ""
+
+
+def test_a_new_chat_defaults_to_the_oldest_embedding(db, user, agent):
+    first = emb(user, "First")
+    emb(user, "Second")
+    _, _, settings = services.begin_turn(
+        user, agent_key=str(agent.pk), conversation_id=None, text="a"
+    )
+    assert settings.embedding_id == first.pk
+
+
+def test_at_0010_18_a_deleted_embedding_asks_for_another(db, user, agent, auth_api):
+    small = emb(user, "Small")
+    convo, *_ = services.begin_turn(
+        user, agent_key=str(agent.pk), conversation_id=None, text="a", embedding_id=small.pk
+    )
+    small.delete()
+    body = auth_api.get(f"/api/chat/conversations/{convo.pk}/").json()
+    assert body["embedding"] is None and body["embedding_deleted"] is True
+    with pytest.raises(services.UnknownTarget, match="pick another"):
+        services.begin_turn(user, agent_key=str(agent.pk), conversation_id=convo.pk, text="b")
+
+
+def test_other_users_embeddings_and_connections_are_rejected(db, user, other_user, agent):
+    from apps.providers.models import Connection
+
+    theirs = emb(other_user, "Theirs")
+    conn = Connection.objects.create(owner=other_user, name="C", base_url="http://x/v1")
+    for choice in ({"embedding_id": theirs.pk}, {"connection_id": conn.pk}):
+        with pytest.raises(services.UnknownTarget):
+            services.begin_turn(
+                user, agent_key=str(agent.pk), conversation_id=None, text="a", **choice
+            )
+
+
 # --- spec 0009: delete a chat ---------------------------------------------------------------
 
 
@@ -122,7 +222,7 @@ def cancelled(monkeypatch):
 
 
 def test_at_0009_02_delete_removes_the_conversation_and_its_messages(db, user, auth_api, cancelled):
-    convo, _ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="Hello")
+    convo, *_ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="Hello")
     services.save_reply(
         convo.pk,
         run_id="r1",
@@ -137,7 +237,7 @@ def test_at_0009_02_delete_removes_the_conversation_and_its_messages(db, user, a
 
 
 def test_at_0009_03_cannot_delete_another_users_conversation(db, user, other_user, cancelled):
-    convo, _ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="Mine")
+    convo, *_ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="Mine")
     bob = APIClient()
     bob.force_authenticate(other_user)
     assert bob.delete(f"/api/chat/conversations/{convo.pk}/").status_code == 404
@@ -148,7 +248,7 @@ def test_at_0009_03_cannot_delete_another_users_conversation(db, user, other_use
 
 
 def test_at_0009_05_deleting_a_streaming_conversation_cancels_the_run(db, user, cancelled):
-    convo, _ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="Long")
+    convo, *_ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="Long")
     assert services.mark_run_started(convo.pk, "run-9")
     services.delete_conversation(user, convo.pk)
     assert cancelled["runs"] == ["run-9"]
@@ -164,7 +264,7 @@ def test_at_0009_05_deleting_a_streaming_conversation_cancels_the_run(db, user, 
 
 
 def test_save_reply_clears_the_active_run(db, user):
-    convo, _ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="x")
+    convo, *_ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="x")
     services.mark_run_started(convo.pk, "run-1")
     services.save_reply(
         convo.pk,

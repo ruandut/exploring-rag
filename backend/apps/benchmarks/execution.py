@@ -16,6 +16,7 @@ from apps.agents import runner
 from apps.agents import services as agent_services
 from apps.providers import selectors as provider_selectors
 from apps.providers import services as provider_services
+from apps.rag import selectors as rag_selectors
 from apps.rag.tokens import count_tokens
 from apps.scoring import judge, retrieval
 from apps.scoring.metrics import CASE_PASS_THRESHOLD, METRICS
@@ -65,13 +66,20 @@ def _ask_target(run: BenchmarkRun, question: str) -> tuple[str, list[dict], int 
             first_token.append(time.monotonic())
 
     if run.target_kind == BenchmarkRun.TargetKind.AGENT:
-        agent, folder_ids = agent_services.from_snapshot(run.owner, run.target_snapshot)
+        snap = run.target_snapshot
+        agent = agent_services.from_snapshot(run.owner, snap)
         res = runner.run(
             user=run.owner,
             agent=agent,
             messages=[{"role": "user", "content": question}],
             emit=mark_first,
-            folder_ids=folder_ids,
+            embedding=_snapshot_embedding(run),
+            connection=(
+                provider_selectors.get_connection(run.owner, snap["connection"])
+                if snap.get("connection")
+                else None
+            ),
+            model=snap.get("model", ""),
         )
         answer, retrieved = res.answer, _dedupe(res.retrieved)
     else:
@@ -100,6 +108,21 @@ def _ask_target(run: BenchmarkRun, question: str) -> tuple[str, list[dict], int 
         answer, retrieved = "".join(parts), []
     ttft = int((first_token[0] - started) * 1000) if first_token else None
     return answer, retrieved, ttft
+
+
+def _snapshot_embedding(run: BenchmarkRun):
+    """The embedding the run searches. A deleted one fails the case (retryable after you pick
+    another) rather than quietly searching something else. Runs from before spec 0010 have no
+    embedding in their snapshot: they searched everything, i.e. the oldest embedding now."""
+    snap = run.target_snapshot
+    if "embedding" not in snap:
+        return rag_selectors.default_embedding(run.owner)
+    if snap["embedding"] is None:
+        return None
+    found = rag_selectors.embeddings_for(run.owner).filter(pk=snap["embedding"]["id"]).first()
+    if found is None:
+        raise ValueError(f"The embedding “{snap['embedding']['name']}” was deleted")
+    return found
 
 
 def _dedupe(retrieved: list[dict]) -> list[dict]:

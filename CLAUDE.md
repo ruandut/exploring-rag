@@ -21,7 +21,7 @@ and keep the **System Design page** and **ARCHITECTURE.md** accurate — they ar
 | Background work, agents, cron | **Hatchet** (tasks in `backend/apps/jobs/tasks/`) | Celery, RQ, django.tasks, threads |
 | Database + vectors | Postgres + pgvector | separate vector DBs |
 | Redis | **Only** the Channels layer | queues, caching, sessions |
-| LLM | OpenAI-compatible client: default provider (embeddings + chat) + extra connections such as Ollama (chat) | provider-specific SDKs |
+| LLM | OpenAI-compatible client: default provider + extra connections such as Ollama, each usable for chat and for embeddings | provider-specific SDKs |
 
 Full map of what is used for what: [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -66,11 +66,11 @@ Backend: always `uv` (`uv add <pkg>`, `uv run python manage.py …`, `uv run pyt
 | `accounts` | platform | users, JWT endpoints | core |
 | `realtime` | platform | websocket gateway, `send_to_user`, ws handler registry | core |
 | `jobs` | platform | Hatchet client, worker, task discovery, demo tasks | core, realtime |
-| `providers` | domain | LLM provider config + OpenAI-compatible client factory (0004) | platform |
-| `library` | domain | folders, documents, uploads (0003) | platform |
-| `rag` | domain | parse/chunk/embed, `Chunk` + vectors, retrieval, rerank, generation (0003–0005) | providers, library |
-| `agents` | domain | agent config, agent loop (`runner.py`), `agent-run` task (0005) | providers, library, rag |
-| `chat` | domain | conversations, messages, `agent.ask`/`agent.cancel` ws handlers (0005) | providers, agents |
+| `providers` | domain | LLM provider config, connections, OpenAI-compatible client factory, model catalogue (0004, 0010) | platform |
+| `library` | domain | folders, documents, uploads; emits document events (0003, 0010) | platform |
+| `rag` | domain | embeddings (`EmbeddingIndex`), parse/chunk/embed per embedding, `Chunk` + vectors, retrieval, rerank, generation (0003–0005, 0010) | providers, library |
+| `agents` | domain | agent config (system message + RAG options), agent loop (`runner.py`), `agent-run` task (0005, 0010) | providers, library, rag |
+| `chat` | domain | conversations (agent + embedding + model), messages, `agent.ask`/`agent.cancel` ws handlers (0005, 0009, 0010) | providers, agents, rag |
 | `scoring` | domain | metric maths, LLM-judge rubrics, aggregation, boundary checks — no models (0006) | providers |
 | `evals` | domain | suites, cases, boundaries, judge settings, JSONL import/export (0006) | library, providers, scoring |
 | `benchmarks` | domain | runs, case results, `benchmark-run`/`-case` tasks, progress, comparisons (0006) | providers, library, rag, agents, evals, scoring |
@@ -98,12 +98,13 @@ Rules:
   Inputs are Pydantic models with IDs only (JSON-serialisable). Enqueue from views inside
   `transaction.on_commit(...)` once a task depends on rows written in the same request.
   Declare retries / concurrency / rate limits on the task, not in callers.
-- **Hatchet event keys** (lower app → higher app): `document.uploaded`,
-  `document.reindex_requested` (library → rag `index-document`), `provider.embedding_changed`
-  (providers → rag `reindex-user-documents`). Listed in `apps/jobs/events.py`.
-- **Embeddings always use the default provider** (every vector must come from one model);
-  agents may answer with any connection/model. Agent runs must keep working for models without
-  tool calling (pipeline fallback).
+- **Hatchet event keys** (lower app → higher app): `document.uploaded`, `document.moved`,
+  `document.reindex_requested` (library → rag `route-document`, which queues `index-document`
+  once per embedding that covers the document). Listed in `apps/jobs/events.py`.
+- **Every vector in an embedding index comes from that index's one model**; retrieval searches
+  one index at a time, embedding the query with that index's model. The chat picks agent +
+  embedding (or None) + model; agents own no folders, connection or model. Agent runs must keep
+  working for models without tool calling (pipeline fallback).
 - **Benchmarks never let a missing score pass**: n/a only for metrics that don't apply (retrieval
   on a bare model); an unreadable judge verdict fails the case (retryable).
 - **Sync Hatchet tasks** that use the ORM call `close_old_connections()` at start and end.
@@ -115,7 +116,9 @@ Rules:
   `frontend/src/lib/socket.ts` (`ServerEvent`, `ClientMessage`) — that file is the contract.
   Add a type there *and* in the backend emitter in the same change. Current types:
   `auth.ok|auth.error|pong|error`, `job.progress|job.completed`, `document.status`,
+  `embedding.status{embedding_id,status,done,total,error}`,
   `agent.started{conversation_id}|thinking|tool_call|retrieval|token|done{model,mode}|cancelled|error`.
+  Client `agent.ask` carries `embedding_id` (null = none), `connection_id`, `model`.
   `benchmark.progress|case|completed` (ids are BenchmarkRun ids).
   Citations in answers are `[document#chunk]`.
   Planned (0006): `eval.progress|eval.case_result|eval.completed`.

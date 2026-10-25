@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowUp, Bot, Square } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,7 +17,8 @@ import { cn } from "@/lib/utils";
 export type AgentOption = { id: string; name: string; description: string };
 
 /** The message box, laid out like Claude's: one rounded card with an auto-growing text area
- *  on top and a toolbar row inside it — agent picker and send / stop on the right. */
+ *  on top and a toolbar row inside it — embedding, model and agent pickers and send / stop on
+ *  the right. */
 export function Composer({
   draft,
   onDraft,
@@ -28,6 +30,7 @@ export function Composer({
   agents,
   agentId,
   onAgent,
+  pickers,
   autoFocus,
 }: {
   draft: string;
@@ -40,6 +43,8 @@ export function Composer({
   agents: AgentOption[];
   agentId: string;
   onAgent: (id: string) => void;
+  /** Extra pickers shown before the agent picker (embedding, model). */
+  pickers?: ReactNode;
   autoFocus?: boolean;
 }) {
   const agent = agents.find((a) => a.id === agentId);
@@ -79,10 +84,11 @@ export function Composer({
           )}
         />
         <div className="flex items-center gap-2 px-2.5 pb-2.5">
-          <span className="ml-1.5 hidden text-xs text-muted-foreground sm:inline">
+          <span className="ml-1.5 hidden text-xs text-muted-foreground xl:inline">
             Shift + Enter for a new line
           </span>
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+            {pickers}
             <Select value={agentId} onValueChange={onAgent}>
               <SelectTrigger
                 size="sm"

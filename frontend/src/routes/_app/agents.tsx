@@ -23,7 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AgentForm } from "@/features/agents/agent-form";
 import {
   type Agent,
-  modelLabel,
+  pipelineLabel,
   useAgents,
   useDeleteAgent,
   useSaveAgent,
@@ -50,8 +50,8 @@ function AgentsPage() {
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="max-w-2xl text-sm text-muted-foreground">
-          An agent is a system message, a model (your default provider or a local one like Ollama)
-          and a RAG pipeline. Pick one in Chat.
+          An agent is a system message and a RAG pipeline. In Chat you pick it together with an
+          embedding (what to search) and a model (what answers).
         </p>
         <Button onClick={() => setEditing("new")}>
           <Plus className="size-4" /> New agent
@@ -70,7 +70,7 @@ function AgentsPage() {
                     <CardTitle className="flex items-center gap-2">
                       <Bot className="size-4 shrink-0" /> {agent.name}
                     </CardTitle>
-                    <CardDescription className="truncate">{modelLabel(agent)}</CardDescription>
+                    <CardDescription className="truncate">{pipelineLabel(agent)}</CardDescription>
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -110,9 +110,6 @@ function AgentsPage() {
                     )}
                     <Badge variant="secondary">
                       {label(GENERATION, agent.rag_config.generation)}
-                    </Badge>
-                    <Badge variant="outline">
-                      {agent.folders.length ? `${agent.folders.length} folders` : "All documents"}
                     </Badge>
                   </div>
                   <Button asChild variant="outline" size="sm" className="w-fit">

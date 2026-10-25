@@ -34,6 +34,7 @@ Before(async function (this: AppWorld) {
   await this.api.login(this.user);
   this.fakeLlm = fakeLlm;
   fakeLlm.down = false; // an outage from a previous scenario must not leak
+  fakeLlm.ollamaNoEmbeddings = false;
   this.context = await browser.newContext();
   this.page = await this.context.newPage();
   this.page.on("load", () => this.pageLoads++);

@@ -10,6 +10,12 @@ export type ConversationSummary = {
   title: string;
   agent_key: string;
   agent_name: string;
+  embedding: number | null;
+  embedding_name: string;
+  embedding_deleted: boolean; // it had an embedding that's since been deleted
+  connection: number | null;
+  connection_name: string;
+  model: string;
   message_count: number;
   updated_at: string;
 };
@@ -25,6 +31,8 @@ type StoredMessage = {
     tool_calls?: { tool: string; args: Record<string, unknown> }[];
     retrieved?: RetrievedChunk[];
     model?: string;
+    agent?: string;
+    embedding?: { id: number; name: string; model: string; dimensions: number | null } | null;
     error?: string;
   };
 };
@@ -67,6 +75,9 @@ export function toTurns(detail: ConversationDetail): Turn[] {
           status: m.status,
           error: m.metadata.error,
           model: m.metadata.model,
+          agentName: m.metadata.agent,
+          embeddingName:
+            m.metadata.embedding?.name ?? (m.metadata.embedding === null ? "" : undefined),
         },
   );
 }

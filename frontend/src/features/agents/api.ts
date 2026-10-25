@@ -12,19 +12,17 @@ export type RagConfig = {
   generation: "stuff" | "cited" | "map_reduce" | "refine" | "corrective";
 };
 
+/** How an agent retrieves and answers. What it searches (an embedding) and which model answers
+ *  are picked in the chat, next to the agent (spec 0010). */
 export type Agent = {
   id: number;
   name: string;
   system_message: string;
-  connection: number | null;
-  connection_name: string | null;
-  model: string;
-  folders: number[];
   rag_config: RagConfig;
   updated_at: string;
 };
 
-export type AgentInput = Omit<Agent, "id" | "connection_name" | "updated_at">;
+export type AgentInput = Omit<Agent, "id" | "updated_at">;
 
 export const DEFAULT_RAG: RagConfig = {
   query_transform: "none",
@@ -58,10 +56,17 @@ export function useDeleteAgent() {
   });
 }
 
-/** How the UI names an agent's model: "Ollama (local) · gemma4:e4b" or "Default provider". */
-export function modelLabel(agent: Agent): string {
-  if (agent.connection_name) return `${agent.connection_name} · ${agent.model}`;
-  return agent.model ? `Default provider · ${agent.model}` : "Default provider";
+/** How the UI names a model choice: "Ollama (local) · gemma4:e4b", "Default provider · gpt-5". */
+export function modelLabel(connectionName: string | null, model: string, fallback = ""): string {
+  const source = connectionName ?? "Default provider";
+  const name = model || fallback;
+  return name ? `${source} · ${name}` : source;
+}
+
+/** One-line description of an agent's RAG pipeline, for pickers and cards. */
+export function pipelineLabel(agent: Agent): string {
+  const r = agent.rag_config;
+  return `${r.retrieval}, top-${r.top_k}, ${r.generation}`;
 }
 
 // --- connections (apps.providers) --------------------------------------------------------
@@ -114,16 +119,18 @@ export function useDeleteConnection() {
   });
 }
 
-/** Models an endpoint offers. connection null = the default provider. */
+/** Model ids an endpoint offers. connection null = the default provider. (The model picker
+ *  uses the richer features/models catalogue; this is for plain lists like Settings.) */
 export function useModels(connection: number | null, enabled = true) {
   return useQuery({
     queryKey: ["models", connection ?? "default"],
     queryFn: () =>
-      api<{ models: string[] }>(
+      api<{ models: { id: string }[] }>(
         connection === null
           ? "/api/providers/models/"
           : `/api/providers/connections/${connection}/models/`,
       ),
+    select: (data) => ({ models: data.models.map((m) => m.id) }),
     enabled,
     retry: false,
     staleTime: 60_000,

@@ -4,15 +4,20 @@ import { readFileSync } from "node:fs";
 
 import { Given, Then, When } from "@cucumber/cucumber";
 
+import { BenchmarksPage } from "../pages/benchmarks-page.ts";
+import { ChatPage } from "../pages/chat-page.ts";
 import { EmbeddingsPage } from "../pages/embeddings-page.ts";
+import { ModelPicker } from "../pages/model-picker.ts";
 import { FIXTURES } from "../pages/library-page.ts";
-import { createFolder } from "../support/documents.ts";
+import { createAgent, createFolder } from "../support/documents.ts";
+import { APP_URL } from "../support/env.ts";
 import {
   chunksIn,
   coveredDocuments,
   EMBEDDING_TIMEOUT,
   ensureDefaultEmbedding,
   ensureEmbedding,
+  waitForEmbeddingStatus,
   waitUntilCovered,
   waitUntilNotCovered,
 } from "../support/embeddings.ts";
@@ -93,6 +98,7 @@ Given(
     await ensureEmbedding(this, name, { folders: [await folderWithItsDocument(this, folder)] });
     const fixture = FOLDER_FIXTURES[folder];
     if (fixture) await waitUntilCovered(this, name, fixture);
+    await waitForEmbeddingStatus(this, name, "ready");
   },
 );
 
@@ -301,4 +307,207 @@ Then("{string} is still in my library", async function (this: AppWorld, name: st
     docs.some((d) => d.name === name),
     `${name} is gone from the library`,
   );
+});
+
+// --- chat with agent + embedding + model (AT-0010-13..15, 18) --------------------------------
+
+When(
+  "I start a chat with the agent {string}, the embedding {string} and the model {string}",
+  async function (this: AppWorld, agent: string, embedding: string, model: string) {
+    const chat = new ChatPage(this.page);
+    await chat.openNew();
+    await chat.selectAgent(agent);
+    await chat.selectEmbedding(embedding);
+    await chat.selectModel(model);
+  },
+);
+
+When("I send {string}", async function (this: AppWorld, message: string) {
+  await new ChatPage(this.page).ask(message);
+});
+
+Then(
+  "the chat settings show {string}, {string} and {string}",
+  async function (this: AppWorld, agent: string, embedding: string, model: string) {
+    const settings = new ChatPage(this.page).settings;
+    for (const part of [agent, `Embedding: ${embedding}`, model]) {
+      await settings.filter({ hasText: part }).waitFor();
+    }
+  },
+);
+
+Given("I had a chat with the embedding {string}", async function (this: AppWorld, embedding: string) {
+  await createAgent(this, "Docs helper");
+  const chat = new ChatPage(this.page);
+  await chat.openNew();
+  await chat.selectAgent("Docs helper");
+  await chat.selectEmbedding(embedding);
+  await chat.ask("What is the refund window?");
+  await chat.waitUntilFinished();
+  this.conversationId = await chat.openConversationId();
+});
+
+When("I switch the chat's embedding to {string}", async function (this: AppWorld, embedding: string) {
+  await new ChatPage(this.page).selectEmbedding(embedding);
+});
+
+async function usedEmbedding(world: AppWorld, which: "latest" | "previous", name: string) {
+  const chat = new ChatPage(world.page);
+  await chat.waitUntilFinished();
+  const answers = world.page.getByRole("article", { name: "Agent answer" });
+  const answer = which === "latest" ? answers.last() : answers.nth((await answers.count()) - 2);
+  await chat.answeredWith(answer).filter({ hasText: `Embedding: ${name}` }).waitFor();
+}
+
+Then("the latest answer shows it used {string}", async function (this: AppWorld, name: string) {
+  await usedEmbedding(this, "latest", name);
+});
+
+Then(
+  "the previous answer still shows it used {string}",
+  async function (this: AppWorld, name: string) {
+    await usedEmbedding(this, "previous", name);
+  },
+);
+
+Then("that chat says {string}", async function (this: AppWorld, text: string) {
+  await this.page.goto(`${APP_URL}/chat?c=${this.conversationId}`);
+  await new ChatPage(this.page).settings.filter({ hasText: text }).waitFor();
+});
+
+// --- benchmarks compare embeddings (AT-0010-17) -------------------------------------------
+
+When(
+  "I compare {string} on the agent {string} with the embeddings {string} and {string}",
+  async function (this: AppWorld, suite: string, agent: string, first: string, second: string) {
+    const page = new BenchmarksPage(this.page);
+    assert.ok(this.suites[suite], `No suite called ${suite}`);
+    await page.openSuite(this.suites[suite]);
+    this.runId = await page.compareEmbeddings(agent, first, second);
+    this.comparedEmbeddings = [first, second];
+  },
+);
+
+Then("each run shows its embedding", async function (this: AppWorld) {
+  const runs = this.page.getByRole("region", { name: /^Run / });
+  const shown = [];
+  for (const run of await runs.all()) {
+    shown.push((await run.getByLabel("Run embedding").textContent()) ?? "");
+  }
+  for (const name of this.comparedEmbeddings ?? []) {
+    assert.ok(
+      shown.some((s) => s.startsWith(`Embedding: ${name} (`)),
+      `No run shows ${name}: ${shown.join(" | ")}`,
+    );
+  }
+});
+
+// --- the model picker (AT-0010-10..12, 16) -------------------------------------------------
+
+const FAKE_ENDPOINTS = { Ollama: "ollamaUrl", bare: "bareUrl", "chat-only": "chatOnlyUrl" } as const;
+
+Given(
+  /^I have a connection "([^"]+)" to the fake (Ollama|bare|chat-only) provider$/,
+  async function (this: AppWorld, name: string, kind: keyof typeof FAKE_ENDPOINTS) {
+    const res = await this.api.post("/api/providers/connections/", {
+      name,
+      base_url: this.fakeLlm[FAKE_ENDPOINTS[kind]],
+    });
+    assert.equal(res.status, 201, res.text);
+  },
+);
+
+Given("the fake Ollama provider has no embedding models", function (this: AppWorld) {
+  this.fakeLlm.ollamaNoEmbeddings = true;
+});
+
+When(
+  "I start a new embedding using the connection {string}",
+  async function (this: AppWorld, connection: string) {
+    const page = new EmbeddingsPage(this.page);
+    await page.open();
+    await page.startNew();
+    await page.form.getByRole("combobox", { name: "Connection" }).click();
+    await this.page.getByRole("option", { name: connection, exact: true }).click();
+  },
+);
+
+When("I open the {string} picker", async function (this: AppWorld, label: string) {
+  this.picker = label;
+  this.pickerGroup = undefined;
+  await new ModelPicker(this.page, label).open();
+});
+
+When(
+  "I open the {string} picker for the connection {string}",
+  async function (this: AppWorld, label: string, connection: string) {
+    this.picker = label;
+    this.pickerGroup = connection;
+    const picker = new ModelPicker(this.page, label);
+    await picker.open();
+    await picker.group(connection).waitFor();
+  },
+);
+
+function openPicker(world: AppWorld) {
+  const picker = new ModelPicker(world.page, world.picker!);
+  const scope = world.pickerGroup ? picker.group(world.pickerGroup) : picker.list;
+  return { picker, scope };
+}
+
+Then("the picker offers {string}", async function (this: AppWorld, model: string) {
+  const { picker, scope } = openPicker(this);
+  await picker.option(model, scope).waitFor();
+});
+
+Then("the picker does not offer {string}", async function (this: AppWorld, model: string) {
+  const { picker } = openPicker(this);
+  // Wait for the list to have loaded (something is offered) before checking an absence.
+  await picker.list.getByRole("option").first().waitFor();
+  assert.equal(await picker.option(model).count(), 0, `${model} is offered`);
+});
+
+Then(
+  "the picker offers {string} under {string}",
+  async function (this: AppWorld, model: string, group: string) {
+    const { picker } = openPicker(this);
+    await picker.option(model, picker.group(group)).waitFor();
+  },
+);
+
+Then("{string} is marked {string}", async function (this: AppWorld, model: string, mark: string) {
+  const { picker, scope } = openPicker(this);
+  await picker.option(model, scope).filter({ hasText: mark }).waitFor();
+});
+
+When(
+  "I choose {string} in the {string} picker",
+  async function (this: AppWorld, model: string, label: string) {
+    await new ModelPicker(this.page, label).option(model).click();
+  },
+);
+
+When(
+  "I search the {string} picker for {string}",
+  async function (this: AppWorld, label: string, text: string) {
+    await new ModelPicker(this.page, label).search(text);
+  },
+);
+
+Then(
+  "the {string} field shows {string}",
+  async function (this: AppWorld, label: string, value: string) {
+    const picker = new ModelPicker(this.page, label);
+    if (await picker.trigger.count()) {
+      await picker.trigger.getByText(value, { exact: true }).waitFor();
+      return;
+    }
+    const field = this.page.getByLabel(label, { exact: true });
+    await field.waitFor();
+    assert.equal(await field.inputValue(), value);
+  },
+);
+
+When("I start a new chat", async function (this: AppWorld) {
+  await new ChatPage(this.page).openNew();
 });

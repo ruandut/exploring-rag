@@ -1,5 +1,9 @@
 # 0005 — Agents + RAG chat
 
+> **Changed by 0010:** agents no longer own folders, a connection or a model. A chat picks the
+> agent, an embedding (what is searched) and a model; folder scoping is an embedding over those
+> folders. The scenarios below are reworded accordingly.
+
 - **Status:** Done
 - **Depends on:** 0003, 0004
 - **Django apps:** `agents` + `chat`, using `rag` and `providers` services
@@ -41,15 +45,16 @@ think, search, and answer from your documents in real time.
 
 ## Scenario: AT-0005-02 — Answers cite the retrieved chunks
 * Given "handbook.md" containing "The refund window is 30 days" is indexed
-* And the agent "Docs helper" can search all my folders
+* And the agent "Docs helper" exists
 * When I ask "Docs helper" "What is the refund window?"
 * Then the answer cites "handbook.md"
 * And every cited chunk is among the retrieved chunks shown
 
 ## Scenario: AT-0005-03 — Folder scoping
 * Given "a.md" is indexed in "Folder A" and "b.md" in "Folder B"
-* And the agent "Scoped" can only search "Folder A"
-* When I ask "Scoped" a question both documents answer
+* And the embedding "Only A" covers the folder "Folder A"
+* And the agent "Scoped" exists
+* When I ask "Scoped" a question both documents answer using the embedding "Only A"
 * Then no retrieved chunk comes from "b.md"
 
 ## Scenario: AT-0005-04 — Hybrid retrieval changes results for keyword-heavy questions
@@ -59,21 +64,21 @@ think, search, and answer from your documents in real time.
 * Then the retrieved chunks differ and the hybrid agent's include the "E-4012" chunk
 
 ## Scenario: AT-0005-05 — Stop keeps the partial answer
-* Given the agent "Docs helper" can search all my folders
+* Given the agent "Docs helper" exists
 * When I ask "Docs helper" a long question
 * And I stop the agent while it is answering
 * Then the partial answer stays visible marked "Stopped."
 
 ## Scenario: AT-0005-07 — An agent can answer with a local model
 * Given I have a model connection "Local" to the fake LLM provider
-* When I create the agent "Local helper" using the model "fake-local" from "Local"
-* And I ask "Local helper" "Hello there"
+* And the agent "Local helper" exists
+* When I ask "Local helper" "Hello there" using the model "fake-local" from "Local"
 * Then the answer comes from "Local · fake-local"
 
 ## Scenario: AT-0005-08 — Models without tool calling still answer from my documents
 * Given "handbook.md" containing "The refund window is 30 days" is indexed
-* And the agent "Basic" uses the model "fake-notools" from my default provider
-* When I ask "Basic" "What is the refund window?"
+* And the agent "Basic" exists
+* When I ask "Basic" "What is the refund window?" using the model "fake-notools" from "Default provider"
 * Then the answer cites "handbook.md"
 
 ## Scenario: AT-0005-06 — Conversations survive a reload

@@ -50,13 +50,29 @@ export type ServerEvent =
   | { type: "agent.tool_call"; run_id: string; tool: string; args: Record<string, unknown> }
   | { type: "agent.retrieval"; run_id: string; chunks: RetrievedChunk[] }
   | { type: "agent.token"; run_id: string; text: string }
-  | { type: "agent.done"; run_id: string; model?: string; mode?: "agentic" | "pipeline" }
+  | {
+      type: "agent.done";
+      run_id: string;
+      model?: string;
+      // pipeline: the model can't call tools; model: no embedding chosen, nothing searched
+      mode?: "agentic" | "pipeline" | "model";
+    }
   | { type: "agent.cancelled"; run_id: string }
   | { type: "agent.error"; run_id: string; detail: string };
 
 export type ClientMessage =
   | { type: "ping" }
-  | { type: "agent.ask"; agent_id: string; message: string; conversation_id?: number | null }
+  | {
+      type: "agent.ask";
+      agent_id: string;
+      message: string;
+      conversation_id?: number | null;
+      // Spec 0010: what to search (null = nothing) and which model answers (connection null =
+      // the default provider, model "" = its chat model). Applies from this message on.
+      embedding_id?: number | null;
+      connection_id?: number | null;
+      model?: string;
+    }
   | { type: "agent.cancel"; run_id: string };
 
 export type SocketStatus = "idle" | "connecting" | "open" | "closed";

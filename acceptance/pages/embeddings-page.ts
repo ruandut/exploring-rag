@@ -1,6 +1,7 @@
 import type { Locator, Page } from "playwright";
 
 import { APP_URL } from "../support/env.ts";
+import { ModelPicker } from "./model-picker.ts";
 
 export type EmbeddingFields = {
   name?: string;
@@ -67,7 +68,7 @@ export class EmbeddingsPage {
       await form.getByRole("group", { name: "Files" }).getByLabel(file, { exact: true }).check();
     }
     if (fields.model !== undefined) {
-      await form.getByLabel("Embedding model", { exact: true }).fill(fields.model);
+      await new ModelPicker(this.page, "Embedding model").pick(fields.model);
     }
     if (fields.chunkSize !== undefined) {
       await form.getByLabel("Chunk size (tokens)").fill(String(fields.chunkSize));

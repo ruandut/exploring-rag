@@ -101,10 +101,58 @@ def run_all(run):
 
 def test_start_runs_snapshots_and_creates_pending_results(db, user, setup, no_hatchet):
     [run] = services.start_runs(user, setup.suite, [{"kind": "agent", "agent": setup.agent.pk}])
-    assert run.target_label == "Docs helper"
+    # No embedding yet, so the oldest one ("left out" = the default) is none at all.
+    assert run.target_label == "Docs helper · no embedding"
     assert run.target_snapshot["system_message"] == "Original"
     assert run.suite_snapshot["version"] == 1
     assert run.results.filter(status="pending").count() == 2
+
+
+def test_at_0010_17_two_embeddings_compare_on_the_same_agent(db, user, setup, no_hatchet):
+    from apps.rag.models import EmbeddingIndex
+
+    small = EmbeddingIndex.objects.create(
+        owner=user, name="Small", model="fake-embed", dimensions=8, all_documents=True
+    )
+    wide = EmbeddingIndex.objects.create(
+        owner=user, name="Wide", model="fake-embed-16", dimensions=16, all_documents=True
+    )
+    runs = services.start_runs(
+        user,
+        setup.suite,
+        [
+            {"kind": "agent", "agent": setup.agent.pk, "embedding": small.pk},
+            {"kind": "agent", "agent": setup.agent.pk, "embedding": wide.pk, "model": "m2"},
+        ],
+    )
+    assert [r.target_label for r in runs] == ["Docs helper · Small", "Docs helper · Wide"]
+    assert runs[1].target_snapshot["embedding"] == {
+        "id": wide.pk,
+        "name": "Wide",
+        "model": "fake-embed-16",
+        "dimensions": 16,
+        "strategy": "recursive",
+        "chunk_size": 512,
+        "chunk_overlap": 64,
+    }
+    assert runs[1].target_snapshot["model"] == "m2"
+    # Deleting the embedding later never changes what the run says it used.
+    wide.delete()
+    runs[1].refresh_from_db()
+    assert runs[1].target_snapshot["embedding"]["name"] == "Wide"
+
+
+def test_a_deleted_embedding_fails_the_case(db, user, setup, no_hatchet):
+    from apps.benchmarks import execution
+    from apps.rag.models import EmbeddingIndex
+
+    small = EmbeddingIndex.objects.create(owner=user, name="Small", model="m", all_documents=True)
+    [run] = services.start_runs(
+        user, setup.suite, [{"kind": "agent", "agent": setup.agent.pk, "embedding": small.pk}]
+    )
+    small.delete()
+    result = execution.execute(run.results.first())
+    assert result.status == "failed" and "was deleted" in result.error
 
 
 def test_two_targets_share_a_compare_group(db, user, setup):

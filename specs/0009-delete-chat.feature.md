@@ -78,7 +78,7 @@ websocket started.
 * Then I am in a new, empty chat
 
 ## Scenario: AT-0009-05 — Deleting a chat that is still answering stops the agent first
-* Given the agent "Docs helper" can search all my folders
+* Given the agent "Docs helper" exists
 * When I ask "Docs helper" a long question
 * And I delete that conversation while the agent is answering
 * And I press "Delete"

@@ -1,6 +1,7 @@
 import type { Locator, Page } from "playwright";
 
 import { APP_URL } from "../support/env.ts";
+import { ModelPicker } from "./model-picker.ts";
 
 export class ChatPage {
   page: Page;
@@ -22,6 +23,34 @@ export class ChatPage {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     await this.page.getByRole("option", { name: new RegExp(`^${escaped}(\\s|$)`) }).click();
     await picker.getByText(name, { exact: true }).waitFor();
+  }
+
+  /** Pick what the chat searches (spec 0010); "None" searches nothing. */
+  async selectEmbedding(name: string): Promise<void> {
+    const picker = this.page.getByRole("combobox", { name: "Embedding" });
+    await picker.click();
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    await this.page.getByRole("option", { name: new RegExp(`^${escaped}(\\s|$)`) }).click();
+    await picker.getByText(name === "None" ? "No embedding" : name, { exact: true }).waitFor();
+  }
+
+  /** Pick which model answers: a model offered by an endpoint ("Default provider" or a
+   *  connection's name). */
+  async selectModel(model: string, source = "Default provider"): Promise<void> {
+    const picker = new ModelPicker(this.page, "Model");
+    await picker.open();
+    await picker.search(model);
+    await picker.option(model, picker.group(source)).click();
+    await picker.trigger.getByText(`${source} · ${model}`, { exact: true }).waitFor();
+  }
+
+  get settings(): Locator {
+    return this.page.getByLabel("Chat settings");
+  }
+
+  /** "Agent · Embedding: … · Model" under an answer. */
+  answeredWith(answer: Locator): Locator {
+    return answer.getByLabel("Answered with");
   }
 
   async ask(question: string): Promise<void> {

@@ -5,7 +5,7 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { modelLabel, useAgents } from "@/features/agents/api";
+import { modelLabel, pipelineLabel, useAgents, useConnections } from "@/features/agents/api";
 import {
   type ConversationSummary,
   fetchConversation,
@@ -14,9 +14,12 @@ import {
   useDeleteConversation,
 } from "@/features/chat/api";
 import { AssistantMessage } from "@/features/chat/assistant-message";
+import { EmbeddingPicker, type ModelChoice, ModelPicker } from "@/features/chat/chat-pickers";
 import { Composer } from "@/features/chat/composer";
 import { DeleteConversationDialog } from "@/features/chat/delete-conversation-dialog";
 import { type AssistantTurn, conversationReducer } from "@/features/chat/conversation";
+import { embeddingSummary, useEmbeddings } from "@/features/embeddings/api";
+import { useProviderConfig } from "@/features/settings/api";
 import { useSocketEvents, useSocketStatus } from "@/hooks/use-socket";
 import { socket } from "@/lib/socket";
 import { cn } from "@/lib/utils";
@@ -36,6 +39,13 @@ export const Route = createFileRoute("/_app/chat")({
   component: ChatPage,
 });
 
+type Picks = {
+  for: number | null;
+  embeddingId?: number | null;
+  embeddingGone?: boolean;
+  model?: ModelChoice;
+};
+
 const DEMO = { id: "demo", name: "Demo agent", description: "Canned stream — no LLM needed" };
 
 function ChatPage() {
@@ -44,17 +54,54 @@ function ChatPage() {
   const queryClient = useQueryClient();
   const agents = useAgents();
   const conversations = useConversations();
+  const embeddings = useEmbeddings();
+  const connections = useConnections();
+  const provider = useProviderConfig();
 
   const options = [
     ...(agents.data ?? []).map((a) => ({
       id: String(a.id),
       name: a.name,
-      description: modelLabel(a),
+      description: pipelineLabel(a),
     })),
     DEMO,
   ];
   const [agentId, setAgentId] = useState<string | null>(search.agent ?? null);
   const effectiveAgent = agentId ?? options[0]?.id ?? DEMO.id;
+
+  // Spec 0010: a chat picks an embedding (what to search; null = nothing) and a model next to
+  // the agent. undefined = not picked yet: a new chat starts with the ones you used last.
+  const last = conversations.data?.[0];
+  // The picks belong to one conversation (null = a new chat); opening another one starts
+  // from its own saved choices, so stale picks are simply ignored instead of reset.
+  const [picks, setPicks] = useState<Picks>({ for: null });
+  const own = picks.for === (search.c ?? null) ? picks : { for: search.c ?? null };
+  const embeddingId = own.embeddingId;
+  const modelChoice = own.model;
+  // The open chat's embedding was deleted and nothing else has been picked yet.
+  const embeddingGone = !!own.embeddingGone;
+  const pick = (change: Omit<Picks, "for">) =>
+    setPicks({ ...own, ...change, for: search.c ?? null });
+  const effectiveEmbedding =
+    embeddingId !== undefined
+      ? embeddingId
+      : last && !last.embedding_deleted
+        ? last.embedding
+        : (embeddings.data?.[0]?.id ?? null);
+  const effectiveModel: ModelChoice =
+    modelChoice ??
+    (last ? { connection: last.connection, model: last.model } : { connection: null, model: "" });
+  const chosenEmbedding = embeddings.data?.find((e) => e.id === effectiveEmbedding);
+  const connectionName =
+    effectiveModel.connection === null
+      ? null
+      : (connections.data?.find((c) => c.id === effectiveModel.connection)?.name ?? "Connection");
+  const chosenModelLabel = modelLabel(
+    connectionName,
+    effectiveModel.model,
+    provider.data?.chat_model ?? "",
+  );
+  const agentName = options.find((a) => a.id === effectiveAgent)?.name ?? "Agent";
 
   const [turns, dispatch] = useReducer(conversationReducer, []);
   const [draft, setDraft] = useState("");
@@ -82,6 +129,12 @@ function ChatPage() {
         if (current.current !== id) return;
         dispatch({ kind: "load", turns: toTurns(detail) });
         setAgentId(detail.agent_key);
+        setPicks({
+          for: id,
+          embeddingId: detail.embedding,
+          embeddingGone: detail.embedding_deleted,
+          model: { connection: detail.connection, model: detail.model },
+        });
       })
       .catch(() => toast.error("Couldn't open that conversation"));
   }, [search.c]);
@@ -94,6 +147,8 @@ function ChatPage() {
       !deleted.current.has(event.conversation_id)
     ) {
       current.current = event.conversation_id;
+      // The new chat's picks now belong to its id.
+      setPicks((p) => (p.for === null ? { ...p, for: event.conversation_id! } : p));
       void navigate({ search: { c: event.conversation_id }, replace: true });
     }
     if (
@@ -120,20 +175,47 @@ function ChatPage() {
   function ask() {
     const text = draft.trim();
     if (!text || active) return;
+    if (embeddingGone) {
+      toast.error("This chat's embedding was deleted — pick another (or None) first.");
+      return;
+    }
     try {
       socket.send({
         type: "agent.ask",
         agent_id: effectiveAgent,
         message: text,
         conversation_id: current.current,
+        embedding_id: effectiveEmbedding,
+        connection_id: effectiveModel.connection,
+        model: effectiveModel.model,
       });
     } catch {
       toast.error("Not connected — waiting for the websocket to reconnect.");
       return;
     }
-    dispatch({ kind: "ask", text, agentId: effectiveAgent });
+    dispatch({
+      kind: "ask",
+      text,
+      agentId: effectiveAgent,
+      agentName,
+      embeddingName: chosenEmbedding?.name ?? "",
+    });
     setDraft("");
   }
+
+  const settingsLine = (
+    <p aria-label="Chat settings" className="truncate text-xs text-muted-foreground">
+      {agentName} · Embedding:{" "}
+      {embeddingGone ? (
+        <span className="text-destructive">Embedding deleted — pick another</span>
+      ) : chosenEmbedding ? (
+        `${chosenEmbedding.name} (${embeddingSummary(chosenEmbedding)})`
+      ) : (
+        "None"
+      )}{" "}
+      · Model: {chosenModelLabel}
+    </p>
+  );
 
   function stop() {
     if (active?.runId) socket.send({ type: "agent.cancel", run_id: active.runId });
@@ -172,6 +254,21 @@ function ChatPage() {
       agents={options}
       agentId={effectiveAgent}
       onAgent={setAgentId}
+      pickers={
+        <>
+          <EmbeddingPicker
+            embeddings={embeddings.data ?? []}
+            value={embeddingGone ? null : effectiveEmbedding}
+            onChange={(id) => pick({ embeddingId: id, embeddingGone: false })}
+          />
+          <ModelPicker
+            connections={connections.data ?? []}
+            defaultChatModel={provider.data?.chat_model ?? ""}
+            value={effectiveModel}
+            onChange={(model) => pick({ model })}
+          />
+        </>
+      }
       autoFocus={autoFocus}
     />
   );
@@ -247,11 +344,15 @@ function ChatPage() {
               <p className="mt-1.5 text-sm text-muted-foreground">
                 Watch it think, search your documents and answer — live.
               </p>
+              <div className="mt-2">{settingsLine}</div>
             </div>
             <div className="w-full max-w-2xl">{composer(true)}</div>
           </div>
         ) : (
           <>
+            <div className="border-b px-4 py-2">
+              <div className="mx-auto max-w-3xl">{settingsLine}</div>
+            </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
               <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
                 {turns.map((turn, i) =>

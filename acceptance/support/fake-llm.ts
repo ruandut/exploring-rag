@@ -13,11 +13,29 @@
 //   precisely the gap keyword/hybrid search fills. A model named "…-<n>" (e.g. fake-embed-16)
 //   returns n dimensions (the 8 topics, zero-padded), so specs can compare embedding sizes.
 // - `embedded` records every text sent to /embeddings, so specs can check what was indexed.
+// - Other personalities for the model picker (spec 0010), on the same port:
+//   /ollama/…      an Ollama: /api/version, /api/tags, /api/show say which models embed (and
+//                  how big) and which chat (with or without tools); `ollamaNoEmbeddings`
+//                  hides its embedding models, like a fresh install.
+//   /bare/…        lists acme-embed-small and mystery-7b with no metadata at all.
+//   /chat-only/…   lists no embedding models.
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
 export const FAKE_EMBEDDING_DIMENSIONS = 8;
 export const FAKE_MODELS = ["fake-chat", "fake-embed", "fake-local", "fake-notools"];
+
+/** The Ollama personality's models, as `/api/show` describes them. */
+const OLLAMA_MODELS: Record<string, { capabilities: string[]; dims?: number }> = {
+  "fake-chat": { capabilities: ["completion", "tools"] },
+  "fake-embed": { capabilities: ["embedding"], dims: 8 },
+  "fake-embed-16": { capabilities: ["embedding"], dims: 16 },
+  "fake-notools": { capabilities: ["completion"] },
+};
+const PERSONALITY_MODELS: Record<string, string[]> = {
+  bare: ["acme-embed-small", "mystery-7b"],
+  "chat-only": ["fake-chat"],
+};
 
 const TOPICS: string[][] = [
   ["refund", "refunds", "payment", "payments", "pay", "price", "cost", "money", "purchase", "credit", "revenue", "billing", "gateway"],
@@ -101,13 +119,18 @@ export type FakeLlm = {
   embedded: string[];
   /** Simulate an outage: every request fails with 503 while true. */
   down: boolean;
+  /** The Ollama personality pretends no embedding model has been pulled. */
+  ollamaNoEmbeddings: boolean;
+  ollamaUrl: string;
+  bareUrl: string;
+  chatOnlyUrl: string;
   close: () => Promise<void>;
 };
 
 export async function startFakeLlm(): Promise<FakeLlm> {
   const requests: string[] = [];
   const embedded: string[] = [];
-  const state = { down: false };
+  const state = { down: false, ollamaNoEmbeddings: false };
 
   const server = createServer((req, res) => {
     let raw = "";
@@ -128,10 +151,34 @@ export async function startFakeLlm(): Promise<FakeLlm> {
           error: { message: "Incorrect API key provided", type: "invalid_request_error" },
         });
       }
+      const personality = /^\/(ollama|bare|chat-only)\//.exec(req.url ?? "")?.[1];
+      const ollamaIds = Object.keys(OLLAMA_MODELS).filter(
+        (id) => !(state.ollamaNoEmbeddings && OLLAMA_MODELS[id].capabilities.includes("embedding")),
+      );
+      if (personality === "ollama" && req.url?.endsWith("/api/version")) {
+        return send(200, { version: "0.12.0-fake" });
+      }
+      if (personality === "ollama" && req.url?.endsWith("/api/tags")) {
+        return send(200, { models: ollamaIds.map((name) => ({ name, model: name })) });
+      }
+      if (personality === "ollama" && req.url?.endsWith("/api/show")) {
+        const model = OLLAMA_MODELS[body.model];
+        if (!model) return send(404, { error: `model '${body.model}' not found` });
+        return send(200, {
+          capabilities: model.capabilities,
+          model_info: model.dims ? { "bert.embedding_length": model.dims } : {},
+        });
+      }
       if (req.url?.endsWith("/models")) {
+        const ids =
+          personality === "ollama"
+            ? ollamaIds
+            : personality
+              ? PERSONALITY_MODELS[personality]
+              : FAKE_MODELS;
         return send(200, {
           object: "list",
-          data: FAKE_MODELS.map((id) => ({ id, object: "model", owned_by: "fake" })),
+          data: ids.map((id) => ({ id, object: "model", owned_by: "fake" })),
         });
       }
       if (req.url?.endsWith("/embeddings")) {
@@ -156,8 +203,17 @@ export async function startFakeLlm(): Promise<FakeLlm> {
   const { port } = server.address() as AddressInfo;
   return {
     baseUrl: `http://127.0.0.1:${port}/v1`,
+    ollamaUrl: `http://127.0.0.1:${port}/ollama/v1`,
+    bareUrl: `http://127.0.0.1:${port}/bare/v1`,
+    chatOnlyUrl: `http://127.0.0.1:${port}/chat-only/v1`,
     requests,
     embedded,
+    get ollamaNoEmbeddings() {
+      return state.ollamaNoEmbeddings;
+    },
+    set ollamaNoEmbeddings(value: boolean) {
+      state.ollamaNoEmbeddings = value;
+    },
     get down() {
       return state.down;
     },
@@ -223,7 +279,14 @@ function chat(body: any, res: ServerResponse, send: (s: number, p: unknown) => v
     return sse(res, body.model, reply.split(" ").map((w, i) => ({ delta: { content: (i ? " " : "") + w } })), "stop", 20);
   }
 
-  // 5) Small helper prompts inside the pipeline (rerank, query rewriting) and Test connection.
+  // 5) A streamed chat turn with nothing to search (spec 0010: the chat picked no embedding,
+  //    so no tool is offered) → an honest streamed answer, long if asked for a long one.
+  if (body.stream && !body.tools && last?.role === "user") {
+    const words = answerFrom(messages).split(" ");
+    return sse(res, body.model, words.map((w, i) => ({ delta: { content: (i ? " " : "") + w } })), "stop", 40);
+  }
+
+  // 6) Small helper prompts inside the pipeline (rerank, query rewriting) and Test connection.
   const reply = prompt.includes("JSON array") ? "[0,1,2,3,4,5,6,7,8,9]" : "OK";
   if (body.stream) return sse(res, body.model, [{ delta: { role: "assistant", content: reply } }], "stop", 0);
   send(200, completion(body.model, { role: "assistant", content: reply }, "stop"));

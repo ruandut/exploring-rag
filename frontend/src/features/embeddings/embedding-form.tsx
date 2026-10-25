@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useConnections } from "@/features/agents/api";
+import { ModelCombobox } from "@/features/models/model-picker";
 import { useDocuments, useFolders } from "@/features/library/api";
 import { fieldErrors, STRATEGIES, type Strategy } from "@/features/settings/api";
 import { Field } from "@/features/settings/provider-form";
@@ -170,17 +171,19 @@ export function EmbeddingForm({
         </Field>
         <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
           <Field id="embedding-model" label="Embedding model" error={errors.model}>
-            <Input
+            <ModelCombobox
               id="embedding-model"
-              value={model}
-              onChange={(e) => {
-                setModel(e.target.value);
-                // Another model may make vectors of another size: detect it again.
-                setDimensions("");
-              }}
+              label="Embedding model"
               placeholder="e.g. nomic-embed-text"
-              autoComplete="off"
-              required
+              value={model}
+              source={{ connection }}
+              want="embedding"
+              onChange={(id, info) => {
+                setModel(id);
+                // Another model may make vectors of another size: use what the endpoint says,
+                // or leave it for the first indexing run (or Test) to detect.
+                setDimensions(info?.dimensions ? String(info.dimensions) : "");
+              }}
             />
           </Field>
           <Field id="embedding-dimensions" label="Dimensions" error={errors.dimensions}>

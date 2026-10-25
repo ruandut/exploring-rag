@@ -116,7 +116,15 @@ export async function exportCases(suite: { id: number; name: string }) {
 // --- runs (apps.benchmarks) --------------------------------------------------------------
 
 export type Target =
-  | { kind: "agent"; agent: number }
+  | {
+      kind: "agent";
+      agent: number;
+      // Spec 0010: what to search (left out = the oldest embedding, null = nothing) and which
+      // model answers (connection null = the default provider, model "" = its chat model).
+      embedding?: number | null;
+      connection: number | null;
+      model: string;
+    }
   | { kind: "model"; connection: number | null; model: string };
 
 export type Stats = { mean: number | null; p50: number | null; p95: number | null; n: number };
@@ -172,6 +180,15 @@ export type RunDetail = Run & {
     model?: string;
     connection_name?: string | null;
     rag_config?: Record<string, unknown>;
+    embedding?: {
+      id: number;
+      name: string;
+      model: string;
+      dimensions: number | null;
+      strategy: string;
+      chunk_size: number;
+      chunk_overlap: number;
+    } | null;
   };
   hatchet_run_id: string;
   results: CaseResult[];

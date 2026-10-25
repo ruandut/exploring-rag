@@ -1,6 +1,7 @@
 import type { Locator, Page } from "playwright";
 
 import { APP_URL } from "../support/env.ts";
+import { ModelPicker } from "./model-picker.ts";
 
 export type ProviderFields = {
   baseUrl?: string;
@@ -26,7 +27,7 @@ export class SettingsPage {
     };
     await set("Base URL", fields.baseUrl);
     await set("API key", fields.apiKey);
-    await set("Chat model", fields.chatModel);
+    if (fields.chatModel !== undefined) await new ModelPicker(this.page, "Chat model").pick(fields.chatModel);
   }
 
   async press(button: string): Promise<void> {

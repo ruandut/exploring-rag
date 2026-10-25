@@ -17,6 +17,26 @@ class Conversation(TimeStampedModel):
         related_name="conversations",
     )
     agent_key = models.CharField(max_length=20)  # Agent id or "demo" — what to ask next time
+    # What the next answer searches (spec 0010). None + a name = it was deleted ("pick
+    # another"); None + no name = the user chose None (the model answers alone).
+    embedding = models.ForeignKey(
+        "rag.EmbeddingIndex",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="conversations",
+    )
+    embedding_name = models.CharField(max_length=100, blank=True)
+    # Which model answers: a connection (None = the default provider) + model ("" = its chat
+    # model). Like the embedding, it can change mid-chat and applies from the next message.
+    connection = models.ForeignKey(
+        "providers.Connection",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="conversations",
+    )
+    model = models.CharField(max_length=200, blank=True)
     title = models.CharField(max_length=200)
     # The Hatchet run answering right now ("" when idle). Replies are only saved when their
     # stream ends, so without this a REST request (delete) couldn't find the run to cancel.

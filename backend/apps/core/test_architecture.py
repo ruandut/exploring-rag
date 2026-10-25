@@ -28,7 +28,8 @@ ALLOWED_DEPENDENCIES: dict[str, set[str]] = {
     "library": PLATFORM,
     "rag": PLATFORM | {"providers", "library"},
     "agents": PLATFORM | {"providers", "library", "rag"},
-    "chat": PLATFORM | {"providers", "agents"},
+    # chat → rag: a conversation references the embedding it searches (spec 0010).
+    "chat": PLATFORM | {"providers", "agents", "rag"},
     # Benchmarks, split by responsibility: how to score / what to test / running tests.
     "scoring": PLATFORM | {"providers"},
     # evals: providers for the judge's connection, scoring for the metric vocabulary.

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ModelCombobox } from "@/features/models/model-picker";
 import { cn } from "@/lib/utils";
 
 import {
@@ -129,7 +130,14 @@ export function ProviderForm({ saved }: { saved: ProviderConfig | null }) {
         error={errors.chat_model}
         hint="Embedding models are chosen per embedding, on the Embeddings page."
       >
-        <Input id="chat_model" value={form.chat_model} onChange={set("chat_model")} required />
+        <ModelCombobox
+          id="chat_model"
+          label="Chat model"
+          value={form.chat_model}
+          source={{ probe: { base_url: form.base_url.trim(), api_key: form.api_key } }}
+          want="chat"
+          onChange={(id) => setForm((f) => ({ ...f, chat_model: id }))}
+        />
       </Field>
 
       {report && (

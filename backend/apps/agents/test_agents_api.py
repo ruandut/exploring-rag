@@ -1,9 +1,6 @@
 import pytest
 from rest_framework.test import APIClient
 
-from apps.library.models import Folder
-from apps.providers.models import Connection
-
 
 @pytest.fixture
 def bob_api(other_user):
@@ -25,41 +22,13 @@ def test_create_agent_with_defaults(auth_api):
         "rerank": "none",
         "generation": "cited",
     }
-    assert body["connection"] is None and body["folders"] == []
+    # Since spec 0010 the chat picks the embedding and the model, not the agent.
+    assert not {"connection", "model", "folders"} & set(body)
 
 
 def test_rag_options_are_validated(auth_api):
     res = auth_api.post(
         "/api/agents/", {"name": "x", "rag_config": {"retrieval": "magic"}}, format="json"
-    )
-    assert res.status_code == 400
-
-
-def test_a_connection_needs_a_model(auth_api, user):
-    conn = Connection.objects.create(
-        owner=user, name="Ollama", base_url="http://localhost:11434/v1"
-    )
-    res = auth_api.post("/api/agents/", {"name": "Local", "connection": conn.pk}, format="json")
-    assert res.status_code == 400 and "model" in res.json()
-    res = auth_api.post(
-        "/api/agents/",
-        {"name": "Local", "connection": conn.pk, "model": "gemma4:e4b"},
-        format="json",
-    )
-    assert res.status_code == 201 and res.json()["connection_name"] == "Ollama"
-
-
-def test_other_users_folders_and_connections_are_rejected(auth_api, other_user):
-    theirs = Folder.objects.create(owner=other_user, name="Theirs")
-    conn = Connection.objects.create(owner=other_user, name="C", base_url="http://x/v1")
-    assert (
-        auth_api.post(
-            "/api/agents/", {"name": "a", "folders": [theirs.pk]}, format="json"
-        ).status_code
-        == 400
-    )
-    res = auth_api.post(
-        "/api/agents/", {"name": "b", "connection": conn.pk, "model": "m"}, format="json"
     )
     assert res.status_code == 400
 
@@ -84,10 +53,12 @@ def test_connections_never_return_keys_and_list_models(auth_api, monkeypatch):
     seen = {}
 
     def fake_list(base_url, api_key):
-        seen["key"] = api_key
-        return ["gemma4:e4b", "gemma4:12b"]
+        from apps.providers.catalog import ModelInfo
 
-    monkeypatch.setattr("apps.providers.services.list_models", fake_list)
+        seen["key"] = api_key
+        return "ollama", [ModelInfo("gemma4:e4b", "chat", "endpoint", None, True)]
+
+    monkeypatch.setattr("apps.providers.catalog.list_models", fake_list)
     models = auth_api.get(f"/api/providers/connections/{res.json()['id']}/models/").json()
-    assert models == {"models": ["gemma4:e4b", "gemma4:12b"]}
+    assert [m["id"] for m in models["models"]] == ["gemma4:e4b"]
     assert seen["key"] == "sk-secret-9876"

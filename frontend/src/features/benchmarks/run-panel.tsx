@@ -5,35 +5,50 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAgents, useConnections, useModels } from "@/features/agents/api";
+import { useAgents, useConnections } from "@/features/agents/api";
+import { useEmbeddings } from "@/features/embeddings/api";
+import { ModelCombobox } from "@/features/models/model-picker";
 import { ApiError } from "@/lib/api";
 
 import { type Target, useStartRun } from "./api";
 import { nativeSelect } from "./suite-editor";
 
-/** "agent:12", "model:default" or "model:3" (a connection) + a model name for bare models. */
+/** What one target needs besides its kind: a model name, and for agents (spec 0010) the
+ *  embedding to search ("" = the oldest one, "none" = nothing) and the connection. */
+type TargetExtras = { model: string; embedding: string; connection: string };
+
+const NO_EXTRAS: TargetExtras = { model: "", embedding: "", connection: "default" };
+
+/** "agent:12", "model:default" or "model:3" (a connection) + extras. */
 function TargetPicker({
   id,
   label,
   value,
-  model,
+  extras,
   onChange,
-  onModel,
+  onExtras,
 }: {
   id: string;
   label: string;
   value: string;
-  model: string;
+  extras: TargetExtras;
   onChange: (v: string) => void;
-  onModel: (m: string) => void;
+  onExtras: (e: TargetExtras) => void;
 }) {
   const agents = useAgents();
   const connections = useConnections();
+  const embeddings = useEmbeddings();
   const bare = value.startsWith("model:");
-  const connection = value === "model:default" || !bare ? null : Number(value.split(":")[1]);
-  const models = useModels(connection, bare);
+  const isAgent = value.startsWith("agent:");
+  const connection = bare
+    ? value === "model:default"
+      ? null
+      : Number(value.split(":")[1])
+    : extras.connection === "default"
+      ? null
+      : Number(extras.connection);
+  const set = (change: Partial<TargetExtras>) => onExtras({ ...extras, ...change });
 
   return (
     <div className="grid gap-2">
@@ -61,29 +76,68 @@ function TargetPicker({
           ))}
         </optgroup>
       </select>
-      {bare && (
-        <>
-          <Input
-            aria-label={`${label} model`}
-            list={`${id}-models`}
-            placeholder={connection === null ? "Provider's chat model" : "Model name"}
-            value={model}
-            onChange={(e) => onModel(e.target.value)}
-            autoComplete="off"
-          />
-          <datalist id={`${id}-models`}>
-            {models.data?.models.map((m) => (
-              <option key={m} value={m} />
+      {isAgent && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          <select
+            aria-label={`${label} embedding`}
+            className={nativeSelect}
+            value={extras.embedding}
+            onChange={(e) => set({ embedding: e.target.value })}
+          >
+            <option value="">
+              Embedding: {embeddings.data?.[0]?.name ?? "none yet"} (default)
+            </option>
+            {embeddings.data?.map((emb) => (
+              <option key={emb.id} value={String(emb.id)}>
+                Embedding: {emb.name}
+              </option>
             ))}
-          </datalist>
-        </>
+            <option value="none">No embedding (model alone)</option>
+          </select>
+          <select
+            aria-label={`${label} connection`}
+            className={nativeSelect}
+            value={extras.connection}
+            onChange={(e) => set({ connection: e.target.value, model: "" })}
+          >
+            <option value="default">Default provider</option>
+            {connections.data?.map((c) => (
+              <option key={c.id} value={String(c.id)}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {(bare || isAgent) && (
+        <ModelCombobox
+          id={`${id}-model`}
+          label={`${label} model`}
+          value={extras.model}
+          placeholder={connection === null ? "Provider's chat model" : "Model name"}
+          source={{ connection }}
+          want="chat"
+          onChange={(m) => set({ model: m })}
+        />
       )}
     </div>
   );
 }
 
-function toTarget(value: string, model: string): Target | null {
-  if (value.startsWith("agent:")) return { kind: "agent", agent: Number(value.slice(6)) };
+function toTarget(value: string, extras: TargetExtras): Target | null {
+  const { model } = extras;
+  if (value.startsWith("agent:")) {
+    return {
+      kind: "agent",
+      agent: Number(value.slice(6)),
+      // Left out = the server's default (the oldest embedding).
+      ...(extras.embedding
+        ? { embedding: extras.embedding === "none" ? null : Number(extras.embedding) }
+        : {}),
+      connection: extras.connection === "default" ? null : Number(extras.connection),
+      model,
+    };
+  }
   if (value === "model:default") return { kind: "model", connection: null, model };
   if (value.startsWith("model:"))
     return { kind: "model", connection: Number(value.slice(6)), model };
@@ -94,15 +148,15 @@ export function RunPanel({ suiteId }: { suiteId: number }) {
   const navigate = useNavigate();
   const start = useStartRun();
   const [first, setFirst] = useState("");
-  const [firstModel, setFirstModel] = useState("");
+  const [firstExtras, setFirstExtras] = useState(NO_EXTRAS);
   const [compare, setCompare] = useState(false);
   const [second, setSecond] = useState("");
-  const [secondModel, setSecondModel] = useState("");
+  const [secondExtras, setSecondExtras] = useState(NO_EXTRAS);
 
   function run() {
     const targets = [
-      toTarget(first, firstModel),
-      compare ? toTarget(second, secondModel) : null,
+      toTarget(first, firstExtras),
+      compare ? toTarget(second, secondExtras) : null,
     ].filter((t): t is Target => t !== null);
     if (!targets.length || (compare && targets.length < 2)) return;
     start.mutate(
@@ -135,9 +189,9 @@ export function RunPanel({ suiteId }: { suiteId: number }) {
           id="target"
           label="Target"
           value={first}
-          model={firstModel}
+          extras={firstExtras}
           onChange={setFirst}
-          onModel={setFirstModel}
+          onExtras={setFirstExtras}
         />
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -153,9 +207,9 @@ export function RunPanel({ suiteId }: { suiteId: number }) {
             id="compare-target"
             label="Second target"
             value={second}
-            model={secondModel}
+            extras={secondExtras}
             onChange={setSecond}
-            onModel={setSecondModel}
+            onExtras={setSecondExtras}
           />
         )}
         <Button

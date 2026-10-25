@@ -104,7 +104,7 @@ applicable boundary holds; results show each one ✓/✗ with its margin.
 * Given I am signed in
 * And my provider is the fake LLM provider
 * And "handbook.md" is indexed
-* And the agent "Docs helper" can search all my folders
+* And the agent "Docs helper" exists
 
 ## Scenario: AT-0006-01 — Create a suite with cases and metrics
 * When I create the suite "Basics" with the cases:

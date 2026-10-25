@@ -5,5 +5,5 @@ from .models import Agent
 
 @admin.register(Agent)
 class AgentAdmin(admin.ModelAdmin):
-    list_display = ["name", "owner", "connection", "model", "updated_at"]
+    list_display = ["name", "owner", "updated_at"]
     list_filter = ["owner"]

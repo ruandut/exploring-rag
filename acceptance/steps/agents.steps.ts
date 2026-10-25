@@ -13,10 +13,21 @@ import type { AppWorld } from "../support/world.ts";
 
 const BOTH_ANSWER = "When are the office plants watered?";
 
-async function askAgent(world: AppWorld, agent: string, question: string) {
+export type ChatChoices = { embedding?: string; model?: string; source?: string };
+
+/** A new chat with the agent (plus, since spec 0010, an embedding and a model if given —
+ *  otherwise the chat's defaults: the oldest embedding and the default provider). */
+export async function askAgent(
+  world: AppWorld,
+  agent: string,
+  question: string,
+  choices: ChatChoices = world.agentChoices[agent] ?? {},
+) {
   const chat = new ChatPage(world.page);
   await chat.openNew();
   await chat.selectAgent(agent);
+  if (choices.embedding) await chat.selectEmbedding(choices.embedding);
+  if (choices.model) await chat.selectModel(choices.model, choices.source);
   await chat.ask(question);
   return chat;
 }
@@ -43,38 +54,28 @@ When(
   },
 );
 
-When(
-  "I create the agent {string} using the model {string} from {string}",
-  async function (this: AppWorld, name: string, model: string, connection: string) {
-    await openNewAgentForm(this, name);
-    await this.page.getByRole("combobox", { name: "Connection" }).click();
-    await this.page.getByRole("option", { name: connection, exact: true }).click();
-    await this.page.getByLabel("Model", { exact: true }).fill(model);
-    await saveAgentForm(this, name);
-  },
-);
-
 Then("I can choose {string} in Chat", async function (this: AppWorld, name: string) {
   const chat = new ChatPage(this.page);
   await chat.openNew();
   await chat.selectAgent(name);
 });
 
+Given("the agent {string} exists", async function (this: AppWorld, name: string) {
+  await createAgent(this, name);
+});
+
+// Older wording (drafts 0007, 0008): the chat's default embedding is "all my documents".
 Given("the agent {string} can search all my folders", async function (this: AppWorld, name: string) {
   await createAgent(this, name);
 });
 
-Given(
-  "the agent {string} can only search {string}",
-  async function (this: AppWorld, name: string, folder: string) {
-    await createAgent(this, name, { folders: [this.folders[folder]] });
-  },
-);
-
+// Older wording (draft 0007): since spec 0010 the model is picked in the chat, so this
+// remembers which model to pick whenever a step asks this agent something.
 Given(
   "the agent {string} uses the model {string} from my default provider",
   async function (this: AppWorld, name: string, model: string) {
-    await createAgent(this, name, { model });
+    await createAgent(this, name);
+    this.agentChoices[name] = { ...this.agentChoices[name], model };
   },
 );
 
@@ -136,6 +137,20 @@ When("I ask {string} {string}", async function (this: AppWorld, agent: string, q
 When("I ask {string} a question both documents answer", async function (this: AppWorld, agent: string) {
   await askAgent(this, agent, BOTH_ANSWER);
 });
+
+When(
+  "I ask {string} a question both documents answer using the embedding {string}",
+  async function (this: AppWorld, agent: string, embedding: string) {
+    await askAgent(this, agent, BOTH_ANSWER, { embedding });
+  },
+);
+
+When(
+  "I ask {string} {string} using the model {string} from {string}",
+  async function (this: AppWorld, agent: string, question: string, model: string, source: string) {
+    await askAgent(this, agent, question, { model, source });
+  },
+);
 
 When("I ask {string} a long question", async function (this: AppWorld, agent: string) {
   await askAgent(this, agent, "Give me a long answer about our refunds.");
@@ -205,8 +220,10 @@ Then("the partial answer stays visible marked {string}", async function (this: A
 });
 
 Then("the answer comes from {string}", async function (this: AppWorld, label: string) {
-  const answer = await new ChatPage(this.page).waitUntilFinished();
-  await answer.getByText(label, { exact: true }).waitFor();
+  const chat = new ChatPage(this.page);
+  const answer = await chat.waitUntilFinished();
+  // The footer reads "<agent> · Embedding: … · <source> · <model>".
+  await chat.answeredWith(answer).filter({ hasText: label }).waitFor();
   const model = label.split(" · ").at(-1)!;
   assert.ok(
     this.fakeLlm.requests.some((r) => r.includes("/chat/completions") && r.endsWith(` ${model}`)),

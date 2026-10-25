@@ -13,6 +13,8 @@ from apps.agents import services as agent_services
 from apps.evals import selectors as eval_selectors
 from apps.evals.models import EvalSuite
 from apps.providers import selectors as provider_selectors
+from apps.rag import selectors as rag_selectors
+from apps.rag.models import EmbeddingIndex
 from apps.realtime.events import send_to_user
 from apps.scoring import aggregate
 from apps.scoring.metrics import METRICS
@@ -27,8 +29,12 @@ class InvalidTarget(Exception):
 
 
 def describe_target(user, target: dict) -> tuple[str, str, dict]:
-    """(kind, label, snapshot) for {"kind": "agent", "agent": id} or
-    {"kind": "model", "connection": id | None, "model": "name"}."""
+    """(kind, label, snapshot) for
+    {"kind": "agent", "agent": id, "embedding": id | None, "connection": id | None, "model": ""}
+    or {"kind": "model", "connection": id | None, "model": "name"}.
+
+    Since spec 0010 an agent run also names what it searches and which model answers — like a
+    chat — so two runs can compare embeddings (or models) with the same agent."""
     if target.get("kind") == "agent":
         try:
             agent = agent_selectors.get_agent(user, int(target["agent"]))
@@ -36,23 +42,22 @@ def describe_target(user, target: dict) -> tuple[str, str, dict]:
             raise InvalidTarget("Unknown agent") from exc
         except Exception as exc:  # Agent.DoesNotExist
             raise InvalidTarget("Unknown agent") from exc
-        return BenchmarkRun.TargetKind.AGENT, agent.name, agent_services.snapshot(agent)
+        embedding = _target_embedding(user, target)
+        source, model, connection = _target_model(user, target, required=False)
+        snap = {
+            **agent_services.snapshot(agent),
+            # Frozen so the run stays readable after the embedding is edited or deleted.
+            "embedding": embedding_snapshot(embedding),
+            "connection": connection.pk if connection else None,
+            "connection_name": source,
+            "model": model,
+        }
+        label = f"{agent.name} · {embedding.name if embedding else 'no embedding'}"
+        return BenchmarkRun.TargetKind.AGENT, label, snap
 
     if target.get("kind") == "model":
-        model = str(target.get("model", "")).strip()
-        connection = None
-        if target.get("connection"):
-            try:
-                connection = provider_selectors.get_connection(user, int(target["connection"]))
-            except Exception as exc:
-                raise InvalidTarget("Unknown connection") from exc
-        elif provider_selectors.get_provider_config(user) is None:
-            raise InvalidTarget("No default provider configured")
-        source = connection.name if connection else "Default provider"
-        if not model:
-            if connection:
-                raise InvalidTarget("Pick a model for this connection")
-            model = provider_selectors.get_provider_config(user).chat_model
+        source, model, connection = _target_model(user, target, required=True)
+        model = model or provider_selectors.get_provider_config(user).chat_model
         snap = {
             "connection": connection.pk if connection else None,
             "connection_name": source,
@@ -61,6 +66,47 @@ def describe_target(user, target: dict) -> tuple[str, str, dict]:
         return BenchmarkRun.TargetKind.MODEL, f"{source} · {model} (bare)", snap
 
     raise InvalidTarget("A target is an agent or a bare model")
+
+
+def embedding_snapshot(index: EmbeddingIndex | None) -> dict | None:
+    if index is None:
+        return None
+    return {
+        "id": index.pk,
+        "name": index.name,
+        "model": index.model,
+        "dimensions": index.dimensions,
+        "strategy": index.strategy,
+        "chunk_size": index.chunk_size,
+        "chunk_overlap": index.chunk_overlap,
+    }
+
+
+def _target_embedding(user, target: dict) -> EmbeddingIndex | None:
+    if "embedding" not in target:
+        return rag_selectors.default_embedding(user)
+    if target["embedding"] is None:
+        return None
+    try:
+        return rag_selectors.get_embedding(user, int(target["embedding"]))
+    except (EmbeddingIndex.DoesNotExist, ValueError, TypeError) as exc:
+        raise InvalidTarget("Unknown embedding") from exc
+
+
+def _target_model(user, target: dict, *, required: bool):
+    """(source label, model, connection) — the default provider when no connection."""
+    model = str(target.get("model", "") or "").strip()
+    connection = None
+    if target.get("connection"):
+        try:
+            connection = provider_selectors.get_connection(user, int(target["connection"]))
+        except Exception as exc:
+            raise InvalidTarget("Unknown connection") from exc
+        if not model:
+            raise InvalidTarget("Pick a model for this connection")
+    elif required and provider_selectors.get_provider_config(user) is None:
+        raise InvalidTarget("No default provider configured")
+    return (connection.name if connection else "Default provider"), model, connection
 
 
 @transaction.atomic

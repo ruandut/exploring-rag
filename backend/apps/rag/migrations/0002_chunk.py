@@ -10,6 +10,9 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
+        # The vector type comes from the pgvector extension; without this, a migration graph
+        # that reaches rag first (e.g. via chat → rag) fails with "type vector does not exist".
+        ("core", "0001_pgvector"),
         ("library", "0001_initial"),
         ("rag", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),

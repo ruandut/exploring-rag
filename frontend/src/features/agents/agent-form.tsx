@@ -11,18 +11,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useFolders } from "@/features/library/api";
 import { Field } from "@/features/settings/provider-form";
 import { ApiError } from "@/lib/api";
 
-import {
-  type Agent,
-  type AgentInput,
-  DEFAULT_RAG,
-  type RagConfig,
-  useConnections,
-  useModels,
-} from "./api";
+import { type Agent, type AgentInput, DEFAULT_RAG, type RagConfig } from "./api";
 import { GENERATION, QUERY_TRANSFORMS, RERANKERS, RETRIEVAL } from "./options";
 
 function errorsOf(error: unknown): Record<string, string> {
@@ -50,15 +42,8 @@ export function AgentForm({
 }) {
   const [name, setName] = useState(agent?.name ?? "");
   const [systemMessage, setSystemMessage] = useState(agent?.system_message ?? "");
-  const [connection, setConnection] = useState<number | null>(agent?.connection ?? null);
-  const [model, setModel] = useState(agent?.model ?? "");
-  const [folders, setFolders] = useState<number[]>(agent?.folders ?? []);
   const [rag, setRag] = useState<RagConfig>(agent?.rag_config ?? DEFAULT_RAG);
   const errors = errorsOf(error);
-
-  const connections = useConnections();
-  const models = useModels(connection);
-  const allFolders = useFolders();
 
   const setRagField = <K extends keyof RagConfig>(key: K, value: RagConfig[K]) =>
     setRag((r) => ({ ...r, [key]: value }));
@@ -71,9 +56,6 @@ export function AgentForm({
         onSubmit({
           name,
           system_message: systemMessage,
-          connection,
-          model,
-          folders,
           rag_config: rag,
         });
       }}
@@ -97,87 +79,10 @@ export function AgentForm({
         />
       </Field>
 
-      <fieldset className="grid gap-4 rounded-lg border p-4">
-        <legend className="px-1 text-sm font-medium">Model</legend>
-        <Field
-          id="connection"
-          label="Connection"
-          hint="Add local models (e.g. Ollama) under Settings → Connections."
-        >
-          <Select
-            value={connection === null ? "default" : String(connection)}
-            onValueChange={(v) => {
-              setConnection(v === "default" ? null : Number(v));
-              setModel("");
-            }}
-          >
-            <SelectTrigger id="connection" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="default">Default provider (Settings)</SelectItem>
-              {connections.data?.map((c) => (
-                <SelectItem key={c.id} value={String(c.id)}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field
-          id="model"
-          label="Model"
-          error={errors.model}
-          hint={
-            models.isError
-              ? "Couldn't list this endpoint's models — type the model name."
-              : connection === null
-                ? "Leave blank to use the default provider's chat model."
-                : `${models.data?.models.length ?? "…"} models available — start typing to pick one.`
-          }
-        >
-          <Input
-            id="model"
-            list="model-options"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder={connection === null ? "Provider default" : "e.g. gemma4:e4b"}
-            autoComplete="off"
-          />
-          <datalist id="model-options">
-            {models.data?.models.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
-        </Field>
-      </fieldset>
-
-      <fieldset className="grid gap-2 rounded-lg border p-4">
-        <legend className="px-1 text-sm font-medium">Folders it may search</legend>
-        <p className="text-xs text-muted-foreground">
-          None ticked = all your documents. Subfolders are included.
-        </p>
-        <div className="grid max-h-40 gap-1.5 overflow-y-auto">
-          {allFolders.data?.length === 0 && (
-            <p className="text-sm text-muted-foreground">No folders yet.</p>
-          )}
-          {allFolders.data?.map((f) => (
-            <label key={f.id} className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="size-4 accent-primary"
-                checked={folders.includes(f.id)}
-                onChange={(e) =>
-                  setFolders((fs) =>
-                    e.target.checked ? [...fs, f.id] : fs.filter((x) => x !== f.id),
-                  )
-                }
-              />
-              {f.name}
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <p className="text-xs text-muted-foreground">
+        What the agent searches (an embedding) and which model answers are picked in Chat, next to
+        the agent — so one agent can be tried with different embeddings and models.
+      </p>
 
       <fieldset className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
         <legend className="px-1 text-sm font-medium">RAG pipeline</legend>

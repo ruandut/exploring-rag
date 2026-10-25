@@ -73,7 +73,7 @@ Lower layers never import higher ones — enforced by `apps/core/test_architectu
 Platform │  jobs ─▶ realtime ─▶ core ◀─ accounts
 ```
 An app may import only from lower layers, and only the ones listed for it in
-`ALLOWED_DEPENDENCIES` (e.g. `chat` → agents, providers; `evals` → library, providers, scoring; `scoring` → providers;
+`ALLOWED_DEPENDENCIES` (e.g. `chat` → agents, providers, rag; `evals` → library, providers, scoring; `scoring` → providers;
 `benchmarks` → evals, scoring, agents, rag, library, providers).
 
 | App | Layer | Owns | Status |
@@ -82,11 +82,11 @@ An app may import only from lower layers, and only the ones listed for it in
 | `accounts` | platform | users, JWT login/refresh, `/me` | ✅ |
 | `realtime` | platform | websocket gateway, `send_to_user()`, ws message-handler registry | ✅ |
 | `jobs` | platform | Hatchet client, worker, task auto-discovery, demo tasks + demo ws handlers | ✅ |
-| `providers` | domain | default provider (Fernet-encrypted key), extra **connections** (e.g. Ollama), `chat_target()`, model lists, Test connection | ✅ 0004–0005 |
-| `library` | domain | folders, documents, uploads, statuses; emits `document.uploaded` / `document.reindex_requested` | ✅ 0003 |
-| `rag` | domain | indexing (parse, chunk, embed, store) + answering (`retrieval.py`, `generation.py`) | ✅ 0003–0005 |
-| `agents` | domain | agent config, agent loop (`runner.py`), `agent-run` task | ✅ 0005 |
-| `chat` | domain | conversations + messages, delete (cancels the active run), `agent.ask`/`agent.cancel` websocket handlers | ✅ 0005, 0009 |
+| `providers` | domain | default provider (Fernet-encrypted key), extra **connections** (e.g. Ollama), `chat_target()`, `embedding_client()`, model catalogue (`catalog.py`: kind, dimensions, tools), Test connection | ✅ 0004–0005, 0010 |
+| `library` | domain | folders, documents, uploads, statuses; emits `document.uploaded` / `document.moved` / `document.reindex_requested` | ✅ 0003, 0010 |
+| `rag` | domain | **embeddings** (`EmbeddingIndex`: coverage, model, chunking), indexing per embedding (parse once, chunk + embed per index) + answering in one index (`retrieval.py`, `generation.py`) | ✅ 0003–0005, 0010 |
+| `agents` | domain | agent config (system message + RAG options), agent loop (`runner.py`), `agent-run` task | ✅ 0005, 0010 |
+| `chat` | domain | conversations (agent + embedding + model) + messages, delete (cancels the active run), `agent.ask`/`agent.cancel` websocket handlers | ✅ 0005, 0009, 0010 |
 | `scoring` | domain | **how to score**: retrieval metrics, LLM-judge rubrics, aggregation, boundaries — no models | ✅ 0006 |
 | `evals` | domain | **what to test**: suites, cases (relevant documents + evidence), metrics, boundaries, judge, JSONL | ✅ 0006 |
 | `benchmarks` | domain | **running tests**: runs, case results, Hatchet fan-out, live progress, comparisons, retries | ✅ 0006 |
@@ -116,10 +116,9 @@ How domain apps plug into the platform without the platform importing them:
 | Worker → Redis → Channels | `asend_to_user()` → `group_send("user.<id>")` | Job progress reaches every open tab |
 | API (delete chat) → Hatchet + Redis → Channels | `runs.cancel(active_run_id)`; `send_to_user(..., cancel_background=run_id)` | A REST request stops a run and the relay task held by whichever socket started it |
 | Worker → Postgres | Django ORM | Store chunks/vectors, read config |
-| Worker → LLM | OpenAI-compatible HTTP (streaming) | ✅ embeddings via the default provider; chat via the agent's connection (default or e.g. Ollama at `localhost:11434/v1`) |
-| API → LLM | OpenAI-compatible HTTP | Settings → Test connection (one tiny chat + one embedding call) |
-| providers → rag | Hatchet event `provider.embedding_changed` | Lower layer triggers higher layer without importing it |
-| library → rag | Hatchet events `document.uploaded`, `document.reindex_requested` | Same pattern for indexing |
+| Worker → LLM | OpenAI-compatible HTTP (streaming) | ✅ embeddings via each embedding's endpoint + model; chat via the chat's chosen connection + model (default or e.g. Ollama at `localhost:11434/v1`) |
+| API → LLM | OpenAI-compatible HTTP (+ Ollama's `/api/version`, `/api/show`) | Test connection (chat), embedding Test (one embedding call), model picker catalogue |
+| library → rag | Hatchet events `document.uploaded`, `document.moved`, `document.reindex_requested` | Lower layer triggers higher layer without importing it |
 | rag → library | `library.services.set_status()` | Higher layer may call lower; also sends websocket `document.status` |
 
 ## Hatchet tasks
@@ -129,8 +128,9 @@ How domain apps plug into the platform without the platform importing them:
 | `demo-index` | `POST /api/jobs/demo-index/` | retries=2, exponential backoff, max 2 concurrent per user, progress events | ✅ (fake work) |
 | `demo-agent` | websocket `agent.ask` | streams `agent.*` events, cancellable | 🧪 |
 | `nightly-housekeeping` | cron `0 3 * * *` | cron | ✅ (no-op) |
-| `reindex-user-documents` (rag) | chunking change, or event `provider.embedding_changed` | queues one `index-document` per document; 1 per user (cancels older) | ✅ |
-| `index-document` (rag) | events `document.uploaded`, `document.reindex_requested` | parse → chunk → embed → store; 3 per user; retries 2; user errors non-retryable | ✅ |
+| `route-document` (rag) | events `document.uploaded`, `document.moved`, `document.reindex_requested` | finds the embeddings covering the document, drops it from ones that no longer do, queues `index-document` per embedding | ✅ |
+| `sync-embedding` (rag) | create / edit / re-index an embedding | queues only the documents gained (all on a re-index); 1 at a time per embedding | ✅ |
+| `index-document` (rag) | `route-document` / `sync-embedding` | parse (cached) → chunk → embed → store in one embedding; stale versions discarded; 3 per user; retries 2; user errors non-retryable | ✅ |
 | `agent-run` (agents) | websocket `agent.ask` (via chat) | streamed tool-calling loop; no retries; 2 per user; checks `ctx.is_cancelled` per token; no-tools fallback | ✅ |
 | `benchmark-run` → `benchmark-case` (benchmarks) | Benchmarks → Run / Retry failed cases | child runs via `run_many`, 2 per user, children record failures instead of raising; parent aggregates + checks boundaries | ✅ |
 | `generate-testset` (evals) | Benchmarks → Generate | LLM writes Q/A/evidence + refusal cases from sampled chunks | 📝 0007 |
@@ -221,4 +221,5 @@ Boundaries (`metric · aggregate · comparator · value`) decide pass/fail for a
 | 2026-10-24 | Fake provider uses a toy 8-topic embedding | Deterministic semantic behaviour in specs — and, like real embedders, it ignores codes, so hybrid search's value is testable. |
 | 2026-10-24 | An unreadable judge verdict fails the case | Found with real Gemma: reasoning models spend tokens thinking, so judges returned cut-off/empty JSON and runs passed with n/a scores. A broken evaluation must never look like a pass. |
 | 2026-10-24 | `evals` may import `scoring` and `providers` | Suites validate metric ids against the scoring registry and pick a judge connection; neither app depends back, so no cycle. |
+| 2026-10-25 | Embeddings are named indexes (spec 0010); one model per index; chat picks agent + embedding + model | Lets you compare models and chunking on the same documents. Retrieval filters by `embedding_index_id`, so indexes never mix; `provider.embedding_changed` is gone because the model lives inside `rag`; `chat → rag` added. |
 | 2026-10-25 | Deleting a chat cancels its run via `Conversation.active_run_id` + `cancel_background` on the user group | Replies are saved only when the stream ends, so the run had to be recorded to be findable from REST; the relay lives in the socket's process, so the platform group message (not a new event type) reaches it. |

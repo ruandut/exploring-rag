@@ -7,7 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useConnections, useModels } from "@/features/agents/api";
+import { useConnections } from "@/features/agents/api";
+import { ModelCombobox } from "@/features/models/model-picker";
 import { ApiError } from "@/lib/api";
 
 import {
@@ -59,7 +60,6 @@ export function SuiteEditor({ suite }: { suite: Suite }) {
   const save = useSaveSuite();
   const importCases = useImportCases(suite.id);
   const connections = useConnections();
-  const judgeModels = useModels(judgeConnection);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const setCase = (i: number, patch: Partial<EvalCase>) =>
@@ -196,19 +196,15 @@ export function SuiteEditor({ suite }: { suite: Suite }) {
           </div>
           <div className="grid gap-2">
             <Label htmlFor="judge-model">Judge model</Label>
-            <Input
+            <ModelCombobox
               id="judge-model"
-              list="judge-models"
+              label="Judge model"
               value={judgeModel}
-              onChange={(e) => setJudgeModel(e.target.value)}
               placeholder={judgeConnection === null ? "Provider's chat model" : "e.g. gemma4:e4b"}
-              autoComplete="off"
+              source={{ connection: judgeConnection }}
+              want="chat"
+              onChange={(id) => setJudgeModel(id)}
             />
-            <datalist id="judge-models">
-              {judgeModels.data?.models.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
           </div>
         </CardContent>
       </Card>

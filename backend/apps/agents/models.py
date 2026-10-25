@@ -22,24 +22,17 @@ def default_rag_config() -> dict:
 
 
 class Agent(TimeStampedModel):
-    """A configured assistant: who it is (system message), what it answers with (connection +
-    model) and how it does RAG (rag_config). Folders scope what it may search (none = all)."""
+    """A configured assistant: who it is (system message) and how it does RAG (rag_config).
+
+    Since spec 0010 an agent decides *how* to retrieve and answer, not *what* is searched or
+    *which* model answers: the chat picks an embedding and a model next to the agent, so one
+    agent can be compared across embeddings and models."""
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="agents"
     )
     name = models.CharField(max_length=100)
     system_message = models.TextField(blank=True)
-    # None = the default provider from Settings; otherwise e.g. a local Ollama connection.
-    connection = models.ForeignKey(
-        "providers.Connection",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="agents",
-    )
-    model = models.CharField(max_length=200, blank=True)  # blank = the provider's chat model
-    folders = models.ManyToManyField("library.Folder", blank=True, related_name="agents")
     rag_config = models.JSONField(default=default_rag_config)
 
     class Meta:

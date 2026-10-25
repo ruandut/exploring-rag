@@ -11,12 +11,14 @@ export type AssistantTurn = {
   status: "pending" | "streaming" | "done" | "cancelled" | "error";
   error?: string;
   model?: string; // e.g. "Ollama (local) · gemma4:e4b", set when the run finishes
+  agentName?: string;
+  embeddingName?: string; // "" = no embedding was searched; undefined = not recorded
 };
 
 export type Turn = { role: "user"; text: string } | AssistantTurn;
 
 export type Action =
-  | { kind: "ask"; text: string; agentId: string }
+  | { kind: "ask"; text: string; agentId: string; agentName?: string; embeddingName?: string }
   | { kind: "load"; turns: Turn[] }
   | { kind: "event"; event: ServerEvent };
 
@@ -31,6 +33,8 @@ export function conversationReducer(turns: Turn[], action: Action): Turn[] {
         role: "assistant",
         runId: null,
         agentId: action.agentId,
+        agentName: action.agentName,
+        embeddingName: action.embeddingName,
         thinking: "",
         toolCalls: [],
         retrieved: [],

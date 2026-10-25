@@ -72,3 +72,10 @@
   Today's data migrates into one embedding, "My documents", with no re-index. Proposes
   CLAUDE.md changes (one model per *index*, `provider.embedding_changed` removed, new
   `document.moved` event, `chat → rag` dependency, `embedding.status` ws event). 18 scenarios.
+- **0010 Embeddings — Done.** Named embeddings (folders / files / all documents + endpoint +
+  model + chunking) on a new Embeddings page, each indexed on its own with live
+  `embedding.status`; Chat picks agent + embedding + model and shows them; answers record what
+  produced them; Benchmarks compare embeddings; a searchable model picker (kinds, dimensions,
+  "No tools", custom ids, hints) everywhere a model is chosen. Today's data migrated into
+  "My documents" with no re-index. Choices made while building: an "All documents" option, a
+  "Not indexed" document status. Specs 0003–0006 and 0009 reworded to match.

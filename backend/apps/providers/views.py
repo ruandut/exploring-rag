@@ -4,7 +4,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 
-from . import selectors, services
+from . import catalog, selectors, services
 from .serializers import (
     ConnectionSerializer,
     ProviderConfigSerializer,
@@ -39,9 +39,14 @@ def test_connection(request):
     return Response(services.test_connection(**params))
 
 
-def _models_response(base_url: str, api_key: str) -> Response:
+def _models_response(request, base_url: str, api_key: str) -> Response:
+    """The model picker's list: every model with its kind (see catalog.py). ?kind=embedding or
+    ?kind=chat keeps that kind (plus unknowns); no kind = all."""
+    want = request.query_params.get("kind") or (
+        request.data.get("kind") if request.method == "POST" else None
+    )
     try:
-        return Response({"models": services.list_models(base_url, api_key)})
+        return Response(catalog.catalogue(base_url, api_key, want=want))
     except OpenAIError as exc:
         return Response({"detail": services.error_message(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
@@ -51,8 +56,22 @@ def default_models(request):
     """Models offered by the default provider."""
     config = selectors.get_provider_config(request.user)
     if config is None:
-        return Response({"models": []})
-    return _models_response(config.base_url, selectors.get_api_key(config))
+        return Response({"endpoint": "", "hint": "", "models": []})
+    return _models_response(request, config.base_url, selectors.get_api_key(config))
+
+
+@api_view(["POST"])
+def probe_models(request):
+    """Models of an endpoint that isn't saved yet (the Settings form). A blank api_key means
+    the saved provider's key, like Test connection."""
+    base_url = str(request.data.get("base_url", "")).strip()
+    if not base_url.startswith(("http://", "https://")):
+        return Response({"base_url": ["Enter a URL."]}, status=status.HTTP_400_BAD_REQUEST)
+    api_key = str(request.data.get("api_key", "") or "")
+    if not api_key:
+        saved = selectors.get_provider_config(request.user)
+        api_key = selectors.get_api_key(saved) if saved else ""
+    return _models_response(request, base_url, api_key)
 
 
 class ConnectionViewSet(
@@ -93,4 +112,4 @@ class ConnectionViewSet(
     def models(self, request, pk=None):
         """Lists the endpoint's models — doubles as a connection test."""
         conn = self.get_object()
-        return _models_response(conn.base_url, selectors.get_api_key(conn))
+        return _models_response(request, conn.base_url, selectors.get_api_key(conn))

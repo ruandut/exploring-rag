@@ -88,7 +88,21 @@ export function AssistantMessage({ turn }: { turn: AssistantTurn }) {
         >
           {turn.status === "cancelled" && "Stopped."}
           {turn.status === "error" && `Error: ${turn.error}`}
-          {turn.model && <span className={cn(turn.status !== "done" && "ml-2")}>{turn.model}</span>}
+          {(turn.model || turn.embeddingName !== undefined) && (
+            <span aria-label="Answered with" className={cn(turn.status !== "done" && "ml-2")}>
+              {[
+                turn.agentName,
+                turn.embeddingName === undefined
+                  ? null
+                  : turn.embeddingName
+                    ? `Embedding: ${turn.embeddingName}`
+                    : "No embedding",
+                turn.model,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          )}
           {turn.runId && (
             <span className="ml-2 font-mono opacity-70">run {turn.runId.slice(0, 8)}</span>
           )}

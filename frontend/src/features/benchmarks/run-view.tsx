@@ -71,6 +71,21 @@ export function RunView({ run, live }: { run: RunDetail; live?: { done: number; 
               {run.suite_name} · version {run.suite_snapshot.version} ·{" "}
               {new Date(run.created_at).toLocaleString()}
             </CardDescription>
+            {run.target_kind === "agent" && (
+              <p aria-label="Run embedding" className="text-xs text-muted-foreground">
+                {snap.embedding
+                  ? `Embedding: ${snap.embedding.name} (${snap.embedding.model}, ${
+                      snap.embedding.dimensions ?? "?"
+                    } dims, ${snap.embedding.strategy} ${snap.embedding.chunk_size}/${
+                      snap.embedding.chunk_overlap
+                    })`
+                  : snap.embedding === null
+                    ? "No embedding (the model answered alone)"
+                    : "Embedding: all documents (before spec 0010)"}{" "}
+                · Model: {(snap.connection_name as string | null) ?? "Default provider"} ·{" "}
+                {(snap.model as string) || "provider default"}
+              </p>
+            )}
           </div>
           {run.status !== "running" && run.summary.failed_cases > 0 && (
             <Button

@@ -23,18 +23,37 @@ async def agent_ask(conn, message: dict) -> None:
     if not text:
         await conn.send_json({"type": "error", "detail": "Empty message"})
         return
+    # The chat's choice of embedding / connection / model (spec 0010). Keys left out keep the
+    # conversation's current choice.
+    choices = {
+        key: message[field]
+        for key, field in (
+            ("embedding_id", "embedding_id"),
+            ("connection_id", "connection_id"),
+            ("model", "model"),
+        )
+        if field in message
+    }
     try:
-        conversation, history = await database_sync_to_async(services.begin_turn)(
+        conversation, history, settings = await database_sync_to_async(services.begin_turn)(
             conn.user,
             agent_key=agent_key,
             conversation_id=message.get("conversation_id"),
             text=text,
+            **choices,
         )
     except services.UnknownTarget as exc:
         await conn.send_json({"type": "error", "detail": str(exc)})
         return
 
-    run_id = await agent_services.astart_run(conn.user, agent_key, history)
+    run_id = await agent_services.astart_run(
+        conn.user,
+        agent_key,
+        history,
+        embedding_id=settings.embedding_id,
+        connection_id=settings.connection_id,
+        model=settings.model,
+    )
     if not await database_sync_to_async(services.mark_run_started)(conversation.pk, run_id):
         # Deleted while the run was starting: nobody can read this answer, so stop it now.
         await database_sync_to_async(services.cancel_run)(run_id)
@@ -43,10 +62,10 @@ async def agent_ask(conn, message: dict) -> None:
     await conn.send_json(
         {"type": "agent.started", "run_id": run_id, "conversation_id": conversation.pk}
     )
-    conn.start_background(run_id, _relay_and_save(conn, run_id, conversation.pk))
+    conn.start_background(run_id, _relay_and_save(conn, run_id, conversation.pk, settings))
 
 
-async def _relay_and_save(conn, run_id: str, conversation_id: int) -> None:
+async def _relay_and_save(conn, run_id: str, conversation_id: int, settings) -> None:
     reply = services.ReplyAccumulator()
     cancelled = False
     try:
@@ -58,7 +77,7 @@ async def _relay_and_save(conn, run_id: str, conversation_id: int) -> None:
         raise
     finally:
         await database_sync_to_async(services.save_reply)(
-            conversation_id, run_id=run_id, reply=reply, cancelled=cancelled
+            conversation_id, run_id=run_id, reply=reply, cancelled=cancelled, settings=settings
         )
 
 

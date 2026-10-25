@@ -46,8 +46,12 @@ class ScriptedModel:
 @pytest.fixture
 def agent(user):
     ProviderConfig.objects.create(owner=user, base_url="http://fake/v1", chat_model="fake-chat")
-    EmbeddingIndex.objects.create(owner=user, name="All", model="e", all_documents=True)
     return Agent.objects.create(owner=user, name="Helper", system_message="Be brief.")
+
+
+@pytest.fixture
+def emb(user):
+    return EmbeddingIndex.objects.create(owner=user, name="All", model="e", all_documents=True)
 
 
 @pytest.fixture
@@ -65,7 +69,7 @@ def use_model(monkeypatch, model):
     monkeypatch.setattr("apps.providers.services.client_for", lambda user: model)
 
 
-def test_agent_searches_then_answers_with_citations(db, user, agent, chunks, monkeypatch):
+def test_agent_searches_then_answers_with_citations(db, user, agent, emb, chunks, monkeypatch):
     model = ScriptedModel(
         [delta(reasoning="Let me search. "), delta(tool_calls=tool_call("refund window"))],
         [delta("The window is 30 days "), delta("[handbook.md#0].")],
@@ -77,6 +81,7 @@ def test_agent_searches_then_answers_with_citations(db, user, agent, chunks, mon
         agent=agent,
         messages=[{"role": "user", "content": "Refunds?"}],
         emit=events.append,
+        embedding=emb,
     )
     kinds = [e["type"] for e in events]
     assert kinds == [
@@ -96,7 +101,7 @@ def test_agent_searches_then_answers_with_citations(db, user, agent, chunks, mon
 
 
 def test_models_without_tools_fall_back_to_retrieve_then_answer(
-    db, user, agent, chunks, monkeypatch
+    db, user, agent, emb, chunks, monkeypatch
 ):
     no_tools = BadRequestError(
         "x",
@@ -111,6 +116,7 @@ def test_models_without_tools_fall_back_to_retrieve_then_answer(
         agent=agent,
         messages=[{"role": "user", "content": "Refunds?"}],
         emit=events.append,
+        embedding=emb,
     )
     assert result.mode == "pipeline"
     assert result.answer == "30 days [handbook.md#0]"
@@ -118,21 +124,37 @@ def test_models_without_tools_fall_back_to_retrieve_then_answer(
     assert "Passages from my documents" in model.calls[1]["messages"][-1]["content"]
 
 
-def test_an_agent_can_use_another_connection_and_model(db, user, agent, chunks, monkeypatch):
-    agent.connection = Connection.objects.create(
+def test_the_chat_picks_the_connection_and_model(db, user, agent, emb, chunks, monkeypatch):
+    connection = Connection.objects.create(
         owner=user, name="Ollama", base_url="http://localhost:11434/v1"
     )
-    agent.model = "gemma4:e4b"
     model = ScriptedModel([delta("Hi")])
     use_model(monkeypatch, model)
     result = runner.run(
-        user=user, agent=agent, messages=[{"role": "user", "content": "Hi"}], emit=lambda e: None
+        user=user,
+        agent=agent,
+        messages=[{"role": "user", "content": "Hi"}],
+        emit=lambda e: None,
+        embedding=emb,
+        connection=connection,
+        model="gemma4:e4b",
     )
     assert model.calls[0]["model"] == "gemma4:e4b"
     assert result.model == "Ollama · gemma4:e4b"
 
 
-def test_cancellation_stops_streaming(db, user, agent, chunks, monkeypatch):
+def test_with_no_embedding_the_model_answers_alone(db, user, agent, monkeypatch):
+    model = ScriptedModel([delta("Hello from the model")])
+    use_model(monkeypatch, model)
+    result = runner.run(
+        user=user, agent=agent, messages=[{"role": "user", "content": "Hi"}], emit=lambda e: None
+    )
+    assert result.mode == "model" and result.answer == "Hello from the model"
+    assert "tools" not in model.calls[0]  # nothing to search, so no search tool
+    assert model.calls[0]["messages"][0] == {"role": "system", "content": "Be brief."}
+
+
+def test_cancellation_stops_streaming(db, user, agent, emb, chunks, monkeypatch):
     model = ScriptedModel([delta("a"), delta("b"), delta("c")])
     use_model(monkeypatch, model)
     tokens = []
@@ -143,5 +165,6 @@ def test_cancellation_stops_streaming(db, user, agent, chunks, monkeypatch):
             messages=[{"role": "user", "content": "Hi"}],
             emit=tokens.append,
             is_cancelled=lambda: len(tokens) >= 1,
+            embedding=emb,
         )
     assert [t["text"] for t in tokens] == ["a"]

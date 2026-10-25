@@ -34,6 +34,13 @@ export class AppWorld extends World {
   conversationId?: number;
   /** The agent run a scenario cancelled. */
   cancelledRunId?: string;
+  /** Embedding / model to pick in the chat when asking an agent (older "agent uses model"). */
+  agentChoices: Record<string, { embedding?: string; model?: string; source?: string }> = {};
+  /** The model picker a scenario has open, and the endpoint group it's looking at. */
+  picker?: string;
+  pickerGroup?: string;
+  /** The embeddings a benchmark comparison ran with. */
+  comparedEmbeddings?: string[];
   /** The embedding a scenario last created or acted on. */
   lastEmbedding?: string;
   /** fakeLlm.embedded / wsEvents lengths before an action, to check only what came after. */

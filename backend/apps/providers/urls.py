@@ -10,5 +10,6 @@ urlpatterns = [
     path("config/", views.provider_config, name="provider_config"),
     path("test/", views.test_connection, name="provider_test"),
     path("models/", views.default_models, name="provider_models"),
+    path("models/probe/", views.probe_models, name="provider_models_probe"),
     *router.urls,
 ]

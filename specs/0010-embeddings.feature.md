@@ -1,6 +1,6 @@
 # 0010 — Embeddings: named indexes you build, compare and chat with
 
-- **Status:** Approved
+- **Status:** Done
 - **Depends on:** 0003 (library), 0004 (providers), 0005 (agents, chat), 0006 (benchmarks)
 - **Django apps:** `rag` (owns `EmbeddingIndex`, its folders/documents, chunking, indexing),
   `providers` (model catalogue for the picker), `agents` (loses folders, connection and model;
@@ -307,12 +307,41 @@ lists; architecture guard with `chat → rag`; detection sources and fallbacks.
 * And that chat says "Embedding deleted — pick another"
 
 ## Implementation notes
-_Filled in when Done._
+Built in four phases (2026-10-25); all 18 scenarios pass, with `make test` and `make check`.
 
-_Heads-up for review:_
-- _Earlier specs get reworded when this is built: 0004 (Settings: embedding fields and the
-  Indexing tab move into embeddings; re-index scenarios move here), 0005 ("the agent … can
-  search all my folders" becomes an agent + embedding; the chat picks a model), 0006 (runs
-  against an agent also name an embedding). Their steps keep working through a default
-  embedding created by "… is indexed"._
-- _Step wording assumes "I upload … to …" and "… exists" for agents; both are new steps._
+- **rag:** `EmbeddingIndex` (coverage: `all_documents` | folders | picked files, endpoint +
+  model + dimensions, chunking, status, `version`), `IndexedDocument` (one document's state in
+  one embedding), `ParsedText` (parse once per document), `Chunk.embedding_index`. Tasks:
+  `route-document` (on `document.uploaded|moved|reindex_requested`), `sync-embedding` (create /
+  edit / re-index: indexes only what was gained, all on a re-index), `index-document`
+  (per document per embedding). A run queued for an older `version` throws its vectors away.
+  API `/api/rag/embeddings/` (+ `reindex`, `documents`, `test`); 409 `reindex_required` for
+  endpoint/model/dimensions/chunking changes. Retrieval filters on `embedding_index_id`.
+- **Decisions made while building (tell me if you'd rather have it otherwise):**
+  - An **"All documents"** option (also covers top-level files and future folders); the
+    migrated "My documents" and the step "with all my folders" use it, instead of copying
+    today's top-level folders.
+  - A document no embedding covers shows **"Not indexed"** (new library status).
+  - The dimensions field is cleared when the model changes; the picker or the first indexing
+    run fills it in.
+- **chat:** `Conversation.embedding` (+ `embedding_name`, so a deleted one reads "pick
+  another"), `connection`, `model`; `agent.ask` carries the picks, which apply from that
+  message; each reply's metadata records agent + embedding + model. A new chat starts with the
+  last chat's picks (else the oldest embedding and the default provider).
+- **agents** lost `connection`, `model`, `folders` (copied onto conversations by
+  `chat/0004`); with embedding None the model answers alone (`mode: "model"`).
+- **benchmarks:** agent targets take `embedding` / `connection` / `model`; the snapshot keeps
+  the embedding's name, model, dimensions and chunking; a deleted embedding fails the case.
+- **providers:** `catalog.py` (Ollama `/api/version` + `/api/show`, OpenRouter modalities,
+  built-in table, name guess, unknown always listed); `?kind=` on model lists and
+  `POST /models/probe/`. The embedding field no longer lives on the provider.
+- **Frontend:** Embeddings page, chat pickers + settings line, `ModelCombobox`
+  (shadcn Command + Popover; `cmdk` added) for embedding, chat, Settings, benchmark and judge
+  models. Settings lost the Indexing tab.
+- **Specs reworded:** 0003 (Background creates "My documents"), 0004 (Test connection is chat
+  only; the overlap check is on the embedding form; re-index scenarios moved here), 0005
+  (folder scoping = an embedding; the chat picks the model), 0006 / 0009 ("the agent … exists").
+- **Tests:** pytest in `rag/test_embeddings.py` (incl. the migration), `rag/test_retrieval.py`,
+  `chat/test_chat.py`, `agents/test_runner.py`, `benchmarks/test_benchmarks.py`,
+  `providers/test_catalog.py`; the fake server gained sized embeddings and Ollama / bare /
+  chat-only personalities.

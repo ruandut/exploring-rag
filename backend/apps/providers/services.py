@@ -58,12 +58,6 @@ def chat_target(user, *, connection: Connection | None, model: str) -> ChatTarge
     return ChatTarget(client_for(user), model, f"Default provider · {model}")
 
 
-def list_models(base_url: str, api_key: str) -> list[str]:
-    """Model ids the endpoint offers (GET /models). Ollama lists every pulled model here."""
-    client = build_client(base_url, api_key, timeout=10.0)
-    return sorted(m.id for m in client.models.list())
-
-
 def save_connection(user, *, data: dict, instance: Connection | None = None) -> Connection:
     conn = instance or Connection(owner=user)
     for field in ("name", "base_url"):

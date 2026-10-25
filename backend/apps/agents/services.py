@@ -10,14 +10,12 @@ DEMO_AGENT = "demo"  # the canned-stream agent from spec 0001; needs no LLM
 @transaction.atomic
 def save_agent(user, *, data: dict, instance: Agent | None = None) -> Agent:
     agent = instance or Agent(owner=user)
-    for field in ("name", "system_message", "connection", "model"):
+    for field in ("name", "system_message"):
         if field in data:
             setattr(agent, field, data[field])
     if "rag_config" in data:
         agent.rag_config = {**default_rag_config(), **data["rag_config"]}
     agent.save()
-    if "folders" in data:
-        agent.folders.set(data["folders"])
     return agent
 
 
@@ -28,31 +26,35 @@ def snapshot(agent: Agent) -> dict:
         "id": agent.pk,
         "name": agent.name,
         "system_message": agent.system_message,
-        "connection": agent.connection_id,
-        "connection_name": agent.connection.name if agent.connection_id else None,
-        "model": agent.model,
-        "folders": list(agent.folders.values_list("pk", flat=True)),
         "rag_config": {**default_rag_config(), **agent.rag_config},
     }
 
 
-def from_snapshot(user, snap: dict) -> tuple[Agent, list[int]]:
-    """An unsaved Agent rebuilt from a snapshot, plus its folder ids (pass both to runner.run)."""
-    agent = Agent(
+def from_snapshot(user, snap: dict) -> Agent:
+    """An unsaved Agent rebuilt from a snapshot (runs from before 0010 also had connection,
+    model and folders keys; those now come from the run's own target)."""
+    return Agent(
         owner=user,
         name=snap["name"],
         system_message=snap["system_message"],
-        connection_id=snap["connection"],
-        model=snap["model"],
         rag_config=snap["rag_config"],
     )
-    return agent, list(snap["folders"])
 
 
-async def astart_run(user, agent_key: str, messages: list[dict]) -> str:
+async def astart_run(
+    user,
+    agent_key: str,
+    messages: list[dict],
+    *,
+    embedding_id: int | None = None,
+    connection_id: int | None = None,
+    model: str = "",
+) -> str:
     """Start an agent run on Hatchet and return its run id (stream it with the run id).
 
-    agent_key is an Agent id, or "demo" for the canned demo agent.
+    agent_key is an Agent id, or "demo" for the canned demo agent. The chat decides what is
+    searched (embedding_id; None = nothing) and which model answers (connection_id + model;
+    None + "" = the default provider's chat model).
     """
     if agent_key == DEMO_AGENT:
         from apps.jobs.tasks.agent import AgentRunInput as DemoInput
@@ -66,6 +68,13 @@ async def astart_run(user, agent_key: str, messages: list[dict]) -> str:
     from .tasks import AgentRunInput, agent_run
 
     run = await agent_run.aio_run_no_wait(
-        AgentRunInput(user_id=user.id, agent_id=int(agent_key), messages=messages)
+        AgentRunInput(
+            user_id=user.id,
+            agent_id=int(agent_key),
+            messages=messages,
+            embedding_id=embedding_id,
+            connection_id=connection_id,
+            model=model,
+        )
     )
     return run.workflow_run_id

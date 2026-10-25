@@ -70,6 +70,8 @@ class RunDetailSerializer(RunSerializer):
 class TargetSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=["agent", "model"])
     agent = serializers.IntegerField(required=False)
+    # Agents only (spec 0010): what to search. Left out = the oldest embedding; null = none.
+    embedding = serializers.IntegerField(required=False, allow_null=True)
     connection = serializers.IntegerField(required=False, allow_null=True)
     model = serializers.CharField(required=False, allow_blank=True)
 

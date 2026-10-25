@@ -2,6 +2,7 @@ import type { Locator, Page } from "playwright";
 
 import { APP_URL } from "../support/env.ts";
 import { FIXTURES } from "./library-page.ts";
+import { ModelPicker } from "./model-picker.ts";
 
 export type CaseRow = {
   kind: string;
@@ -75,15 +76,29 @@ export class BenchmarksPage {
   /** Pick a target ("Docs helper", or "Bare model · Default provider" + model) and run. */
   async run(target: string, model?: string, second?: { target: string; model?: string }): Promise<number> {
     await this.page.getByLabel("Target", { exact: true }).selectOption({ label: target });
-    if (model !== undefined) await this.page.getByLabel("Target model").fill(model);
+    if (model !== undefined) await new ModelPicker(this.page, "Target model").pick(model);
     if (second) {
       await this.page.getByRole("checkbox", { name: "Compare with a second target" }).check();
       await this.page.getByLabel("Second target", { exact: true }).selectOption({ label: second.target });
-      if (second.model !== undefined) await this.page.getByLabel("Second target model").fill(second.model);
+      if (second.model !== undefined) await new ModelPicker(this.page, "Second target model").pick(second.model);
       await this.page.getByRole("button", { name: "Run both" }).click();
     } else {
       await this.page.getByRole("button", { name: "Run", exact: true }).click();
     }
+    await this.page.waitForURL(/\/benchmarks\/runs\/\d+$/);
+    return Number(this.page.url().split("/").at(-1));
+  }
+
+  /** Run one agent twice, searching a different embedding each time (spec 0010). */
+  async compareEmbeddings(agent: string, first: string, second: string): Promise<number> {
+    await this.page.getByLabel("Target", { exact: true }).selectOption({ label: agent });
+    await this.page.getByLabel("Target embedding").selectOption({ label: `Embedding: ${first}` });
+    await this.page.getByRole("checkbox", { name: "Compare with a second target" }).check();
+    await this.page.getByLabel("Second target", { exact: true }).selectOption({ label: agent });
+    await this.page
+      .getByLabel("Second target embedding")
+      .selectOption({ label: `Embedding: ${second}` });
+    await this.page.getByRole("button", { name: "Run both" }).click();
     await this.page.waitForURL(/\/benchmarks\/runs\/\d+$/);
     return Number(this.page.url().split("/").at(-1));
   }
