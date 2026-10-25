@@ -21,8 +21,10 @@ import {
 } from "./api";
 import { METRICS, metricName, SELECTABLE } from "./metrics";
 
+// Native selects on purpose (specs pick options with Playwright's selectOption). native-select
+// in index.css draws our own chevron so it sits inside the padding like the shadcn Select.
 export const nativeSelect =
-  "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "native-select h-9 min-w-0 rounded-md border border-input bg-transparent pl-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 const BOUNDARY_METRICS = [
   ...SELECTABLE,

@@ -35,7 +35,7 @@ function SuitePage() {
           <Skeleton className="h-96 w-full" />
         )}
       </div>
-      <div className="grid h-fit gap-4">
+      <div className="grid h-fit min-w-0 gap-4">
         <RunPanel suiteId={suiteId} />
         <Card>
           <CardHeader>
@@ -44,19 +44,21 @@ function SuitePage() {
           <CardContent>
             <ul aria-label="Runs" className="grid gap-2">
               {runs.data?.map((r) => (
-                <li key={r.id}>
+                <li key={r.id} className="min-w-0">
                   <Link
                     to="/benchmarks/runs/$runId"
                     params={{ runId: String(r.id) }}
                     className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted"
                   >
-                    <span className="min-w-0">
+                    <span className="min-w-0 flex-1">
                       <span className="block truncate">{r.target_label}</span>
                       <span className="block text-xs text-muted-foreground">
                         {new Date(r.created_at).toLocaleString()}
                       </span>
                     </span>
-                    <RunStatus status={r.status} />
+                    <span className="shrink-0">
+                      <RunStatus status={r.status} />
+                    </span>
                   </Link>
                 </li>
               ))}
