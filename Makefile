@@ -2,7 +2,7 @@
 VP := $(shell command -v vp 2>/dev/null || echo $(CURDIR)/frontend/node_modules/.bin/vp)
 HATCHET_TENANT := 707d0855-80ab-4e1f-a156-f1c4546cbf52
 
-.PHONY: up down setup hatchet-token migrate superuser api worker web test acceptance check
+.PHONY: up down setup hatchet-token migrate superuser api worker web test acceptance check testdata
 
 up:            ## Start Postgres, Redis and Hatchet
 	docker compose up -d
@@ -51,3 +51,6 @@ check:
 	cd backend && uv run ruff check . && uv run ruff format --check .
 	cd frontend && $(VP) check
 	cd acceptance && $(VP) run typecheck
+
+testdata:      ## Build the fictional insurance PDF test set + answer key (testdata/insurance)
+	uv run --no-project --with reportlab --with pypdf python testdata/insurance/generate.py
