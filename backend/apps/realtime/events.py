@@ -16,11 +16,16 @@ def user_group(user_id: int) -> str:
     return f"user.{user_id}"
 
 
-async def asend_to_user(user_id: int, payload: dict) -> None:
+async def asend_to_user(
+    user_id: int, payload: dict, *, cancel_background: str | None = None
+) -> None:
+    """`cancel_background` also stops the background task with that key on whichever of the
+    user's sockets owns it (e.g. the relay of a run that was cancelled over REST)."""
     await get_channel_layer().group_send(
-        user_group(user_id), {"type": "user.event", "payload": payload}
+        user_group(user_id),
+        {"type": "user.event", "payload": payload, "cancel_background": cancel_background},
     )
 
 
-def send_to_user(user_id: int, payload: dict) -> None:
-    async_to_sync(asend_to_user)(user_id, payload)
+def send_to_user(user_id: int, payload: dict, *, cancel_background: str | None = None) -> None:
+    async_to_sync(asend_to_user)(user_id, payload, cancel_background=cancel_background)

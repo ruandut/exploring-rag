@@ -18,6 +18,9 @@ class Conversation(TimeStampedModel):
     )
     agent_key = models.CharField(max_length=20)  # Agent id or "demo" — what to ask next time
     title = models.CharField(max_length=200)
+    # The Hatchet run answering right now ("" when idle). Replies are only saved when their
+    # stream ends, so without this a REST request (delete) couldn't find the run to cancel.
+    active_run_id = models.CharField(max_length=64, blank=True)
 
     class Meta:
         ordering = ["-updated_at"]

@@ -224,7 +224,7 @@ Given("I had a conversation with {string}", async function (this: AppWorld, agen
   await createAgent(this, agent);
   const chat = await askAgent(this, agent, "Hello there");
   await chat.waitUntilFinished();
-  await this.page.waitForURL(/[?&]c=\d+/);
+  this.conversationId = await chat.openConversationId();
 });
 
 When("I reload the page", async function (this: AppWorld) {

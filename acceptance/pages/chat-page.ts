@@ -72,7 +72,50 @@ export class ChatPage {
     return out;
   }
 
+  /** The id in ?c= once the server has assigned the conversation one. */
+  async openConversationId(): Promise<number> {
+    await this.page.waitForURL(/[?&]c=\d+/);
+    return Number(new URL(this.page.url()).searchParams.get("c"));
+  }
+
+  // --- the conversation list (sidebar) ---------------------------------------------------
+
+  get conversationList(): Locator {
+    return this.page.getByRole("navigation", { name: "Conversations" });
+  }
+
+  /** Links read "<title> <agent name>", so match the title as a prefix. */
+  conversation(title: string): Locator {
+    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return this.conversationList.getByRole("link", { name: new RegExp(`^${escaped}`) });
+  }
+
+  /** Open /chat (or reload it) and wait until the conversation list has loaded. */
+  async loadConversationList(reload = false): Promise<void> {
+    const loaded = this.page.waitForResponse(
+      (r) => new URL(r.url()).pathname === "/api/chat/conversations/" && r.ok(),
+    );
+    if (reload) await this.page.reload();
+    else await this.page.goto(`${APP_URL}/chat`);
+    await loaded;
+  }
+
+  async deleteConversation(title: string): Promise<void> {
+    await this.conversationList
+      .getByRole("button", { name: `Delete "${title}"`, exact: true })
+      .click();
+  }
+
+  /** The start screen: no ?c=, no messages, the composer ready. */
+  async waitForEmptyChat(): Promise<void> {
+    await this.page.waitForURL((url) => !url.searchParams.has("c"));
+    await this.page.getByRole("textbox", { name: "Message" }).waitFor();
+    await this.page.getByRole("article", { name: "Agent answer" }).first().waitFor({
+      state: "detached",
+    });
+  }
+
   async stop(): Promise<void> {
-    await this.page.getByRole("button", { name: "Stop" }).click();
+    await this.page.getByRole("button", { name: "Stop", exact: true }).click();
   }
 }

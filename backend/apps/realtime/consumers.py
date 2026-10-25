@@ -95,6 +95,8 @@ class EventsConsumer(AsyncJsonWebsocketConsumer):
 
     # --- group messages (sent via apps.realtime.events) -------------------------------
     async def user_event(self, event):
+        if key := event.get("cancel_background"):
+            self.cancel_background(key)
         await self.send_json(event["payload"])
 
     # --- background work owned by this socket (used by registered handlers) ------------

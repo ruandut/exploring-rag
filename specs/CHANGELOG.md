@@ -52,3 +52,12 @@
 - **Chat composer redesigned** after Claude's text bar: one rounded card with an auto-growing
   text area, the agent picker and send/stop inside it, and a centred greeting + composer for
   empty chats. The message box now has the accessible name "Message".
+- **Drafted 0009 Delete a chat** (your request): delete from the chat list behind a confirmation
+  dialog, messages cascade, owner-only (another user's id → 404), deleting the open chat returns
+  to an empty chat, and a reply still streaming is cancelled first (new
+  `Conversation.active_run_id`); 5 scenarios.
+- **0009 Delete a chat — Done.** Trash button per chat behind a confirmation dialog;
+  `DELETE /api/chat/conversations/<id>/` goes through `chat.services.delete_conversation`
+  (owner-only → 404, messages cascade). A reply still streaming is cancelled first: the run is
+  now recorded on the conversation (`active_run_id`), and `send_to_user(cancel_background=…)`
+  stops the relay on whichever socket owns it. Deleting the open chat returns to an empty chat.

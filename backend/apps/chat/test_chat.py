@@ -101,3 +101,76 @@ async def test_ask_streams_and_saves_the_reply(user, agent, monkeypatch):
 
     assert await saved() == [("user", "Hi", "done"), ("assistant", "Hello", "done")]
     assert Message  # imported for readability of the model under test
+
+
+# --- spec 0009: delete a chat ---------------------------------------------------------------
+
+
+@pytest.fixture
+def cancelled(monkeypatch):
+    """Records Hatchet cancels and socket pushes instead of reaching Hatchet / Redis."""
+    calls: dict[str, list] = {"runs": [], "pushes": []}
+    monkeypatch.setattr(services, "cancel_run", calls["runs"].append)
+    monkeypatch.setattr(
+        services,
+        "send_to_user",
+        lambda user_id, payload, cancel_background=None: calls["pushes"].append(
+            (user_id, payload, cancel_background)
+        ),
+    )
+    return calls
+
+
+def test_at_0009_02_delete_removes_the_conversation_and_its_messages(db, user, auth_api, cancelled):
+    convo, _ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="Hello")
+    services.save_reply(
+        convo.pk,
+        run_id="r1",
+        reply=services.ReplyAccumulator(text="Hi", finished=True),
+        cancelled=False,
+    )
+    assert auth_api.delete(f"/api/chat/conversations/{convo.pk}/").status_code == 204
+    assert not Conversation.objects.filter(pk=convo.pk).exists()
+    assert not Message.objects.filter(conversation_id=convo.pk).exists()
+    assert auth_api.get(f"/api/chat/conversations/{convo.pk}/").status_code == 404
+    assert cancelled["runs"] == []  # nothing was streaming
+
+
+def test_at_0009_03_cannot_delete_another_users_conversation(db, user, other_user, cancelled):
+    convo, _ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="Mine")
+    bob = APIClient()
+    bob.force_authenticate(other_user)
+    assert bob.delete(f"/api/chat/conversations/{convo.pk}/").status_code == 404
+    assert bob.delete("/api/chat/conversations/not-a-number/").status_code == 404
+    assert Conversation.objects.filter(pk=convo.pk).exists()
+    with pytest.raises(Conversation.DoesNotExist):
+        services.delete_conversation(other_user, convo.pk)
+
+
+def test_at_0009_05_deleting_a_streaming_conversation_cancels_the_run(db, user, cancelled):
+    convo, _ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="Long")
+    assert services.mark_run_started(convo.pk, "run-9")
+    services.delete_conversation(user, convo.pk)
+    assert cancelled["runs"] == ["run-9"]
+    assert cancelled["pushes"] == [
+        (user.pk, {"type": "agent.cancelled", "run_id": "run-9"}, "run-9")
+    ]
+    # The relay's finally-block still tries to save the partial reply: nothing is stored.
+    reply = services.ReplyAccumulator(text="part")
+    assert services.save_reply(convo.pk, run_id="run-9", reply=reply, cancelled=True) is None
+    assert not Message.objects.filter(conversation_id=convo.pk).exists()
+    # A run that only finished starting after the delete is reported as orphaned.
+    assert services.mark_run_started(convo.pk, "run-10") is False
+
+
+def test_save_reply_clears_the_active_run(db, user):
+    convo, _ = services.begin_turn(user, agent_key="demo", conversation_id=None, text="x")
+    services.mark_run_started(convo.pk, "run-1")
+    services.save_reply(
+        convo.pk,
+        run_id="run-1",
+        reply=services.ReplyAccumulator(text="ok", finished=True),
+        cancelled=False,
+    )
+    convo.refresh_from_db()
+    assert convo.active_run_id == ""

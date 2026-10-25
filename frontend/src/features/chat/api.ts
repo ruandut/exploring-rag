@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import type { RetrievedChunk } from "@/lib/socket";
@@ -35,6 +35,15 @@ export function useConversations() {
   return useQuery({
     queryKey: ["conversations"],
     queryFn: () => api<ConversationSummary[]>("/api/chat/conversations/"),
+  });
+}
+
+/** Delete a conversation and its messages. The server stops a reply that is still streaming. */
+export function useDeleteConversation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api<null>(`/api/chat/conversations/${id}/`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["conversations"] }),
   });
 }
 

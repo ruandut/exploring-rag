@@ -30,6 +30,10 @@ export class AppWorld extends World {
   /** Retrieved chunks shown per agent, for scenarios that compare agents. */
   retrievedBy: Record<string, { tag: string; text: string }[]> = {};
   otherApi = new ApiClient();
+  /** The conversation a chat scenario is looking at (from the ?c= in the URL). */
+  conversationId?: number;
+  /** The agent run a scenario cancelled. */
+  cancelledRunId?: string;
 
   constructor(options: IWorldOptions) {
     super(options);

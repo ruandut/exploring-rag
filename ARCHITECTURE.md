@@ -86,7 +86,7 @@ An app may import only from lower layers, and only the ones listed for it in
 | `library` | domain | folders, documents, uploads, statuses; emits `document.uploaded` / `document.reindex_requested` | ✅ 0003 |
 | `rag` | domain | indexing (parse, chunk, embed, store) + answering (`retrieval.py`, `generation.py`) | ✅ 0003–0005 |
 | `agents` | domain | agent config, agent loop (`runner.py`), `agent-run` task | ✅ 0005 |
-| `chat` | domain | conversations + messages, `agent.ask`/`agent.cancel` websocket handlers | ✅ 0005 |
+| `chat` | domain | conversations + messages, delete (cancels the active run), `agent.ask`/`agent.cancel` websocket handlers | ✅ 0005, 0009 |
 | `scoring` | domain | **how to score**: retrieval metrics, LLM-judge rubrics, aggregation, boundaries — no models | ✅ 0006 |
 | `evals` | domain | **what to test**: suites, cases (relevant documents + evidence), metrics, boundaries, judge, JSONL | ✅ 0006 |
 | `benchmarks` | domain | **running tests**: runs, case results, Hatchet fan-out, live progress, comparisons, retries | ✅ 0006 |
@@ -114,6 +114,7 @@ How domain apps plug into the platform without the platform importing them:
 | Channels (chat handler) → agents → Hatchet | `agents.services.astart_run` → `agent_run.aio_run_no_wait`; `runs.subscribe_to_stream`; `runs.aio_cancel` | Agent runs streamed to the socket that asked; reply saved by chat |
 | Hatchet → Worker | gRPC assignment | Executes tasks with retries/concurrency/rate limits |
 | Worker → Redis → Channels | `asend_to_user()` → `group_send("user.<id>")` | Job progress reaches every open tab |
+| API (delete chat) → Hatchet + Redis → Channels | `runs.cancel(active_run_id)`; `send_to_user(..., cancel_background=run_id)` | A REST request stops a run and the relay task held by whichever socket started it |
 | Worker → Postgres | Django ORM | Store chunks/vectors, read config |
 | Worker → LLM | OpenAI-compatible HTTP (streaming) | ✅ embeddings via the default provider; chat via the agent's connection (default or e.g. Ollama at `localhost:11434/v1`) |
 | API → LLM | OpenAI-compatible HTTP | Settings → Test connection (one tiny chat + one embedding call) |
@@ -220,3 +221,4 @@ Boundaries (`metric · aggregate · comparator · value`) decide pass/fail for a
 | 2026-10-24 | Fake provider uses a toy 8-topic embedding | Deterministic semantic behaviour in specs — and, like real embedders, it ignores codes, so hybrid search's value is testable. |
 | 2026-10-24 | An unreadable judge verdict fails the case | Found with real Gemma: reasoning models spend tokens thinking, so judges returned cut-off/empty JSON and runs passed with n/a scores. A broken evaluation must never look like a pass. |
 | 2026-10-24 | `evals` may import `scoring` and `providers` | Suites validate metric ids against the scoring registry and pick a judge connection; neither app depends back, so no cycle. |
+| 2026-10-25 | Deleting a chat cancels its run via `Conversation.active_run_id` + `cancel_background` on the user group | Replies are saved only when the stream ends, so the run had to be recorded to be findable from REST; the relay lives in the socket's process, so the platform group message (not a new event type) reaches it. |

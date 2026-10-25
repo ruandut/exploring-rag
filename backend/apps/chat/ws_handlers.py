@@ -35,6 +35,11 @@ async def agent_ask(conn, message: dict) -> None:
         return
 
     run_id = await agent_services.astart_run(conn.user, agent_key, history)
+    if not await database_sync_to_async(services.mark_run_started)(conversation.pk, run_id):
+        # Deleted while the run was starting: nobody can read this answer, so stop it now.
+        await database_sync_to_async(services.cancel_run)(run_id)
+        await conn.send_json({"type": "agent.cancelled", "run_id": run_id})
+        return
     await conn.send_json(
         {"type": "agent.started", "run_id": run_id, "conversation_id": conversation.pk}
     )

@@ -70,3 +70,39 @@ async def test_messages_are_dispatched_to_registered_handlers(user):
         await ws.disconnect()
     finally:
         _handlers.pop("test.echo", None)
+
+
+async def test_at_0009_05_a_pushed_event_can_cancel_a_sockets_background_task(user):
+    """REST code (deleting a chat) stops a relay that a socket started, via the user group."""
+    import asyncio
+
+    from apps.realtime.handlers import _handlers, ws_handler
+
+    cancelled = asyncio.Event()
+
+    async def forever():
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    @ws_handler("test.start")
+    async def start(conn, message):
+        conn.start_background("run-1", forever())
+        await conn.send_json({"type": "test.started"})
+
+    try:
+        ws = connect()
+        await ws.connect()
+        await ws.send_json_to({"type": "auth", "token": str(AccessToken.for_user(user))})
+        await ws.receive_json_from()  # auth.ok
+        await ws.send_json_to({"type": "test.start"})
+        await ws.receive_json_from()  # test.started
+        payload = {"type": "agent.cancelled", "run_id": "run-1"}
+        await asend_to_user(user.id, payload, cancel_background="run-1")
+        assert await ws.receive_json_from() == payload
+        await asyncio.wait_for(cancelled.wait(), 1)
+        await ws.disconnect()
+    finally:
+        _handlers.pop("test.start", None)

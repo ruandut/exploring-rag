@@ -4,7 +4,7 @@
 // MUST update this file in the same change. Bump LAST_UPDATED when you do.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const LAST_UPDATED = "2026-10-24 · spec 0006 benchmarks";
+export const LAST_UPDATED = "2026-10-25 · spec 0009 delete a chat";
 
 /** live = works end-to-end today · demo = wired up with fake data · planned = spec drafted */
 export type Status = "live" | "demo" | "planned";
@@ -157,10 +157,10 @@ export const DJANGO_APPS: DjangoApp[] = [
   {
     name: "chat",
     layer: "domain",
-    owns: "Conversations, messages, agent.ask / agent.cancel websocket handlers",
+    owns: "Conversations (incl. the run answering right now), messages, delete, agent.ask / agent.cancel websocket handlers",
     dependsOn: "providers, agents",
     status: "live",
-    spec: "0005",
+    spec: "0005, 0009",
   },
   {
     name: "scoring",
@@ -355,6 +355,7 @@ export const CHAT_FLOW = [
   "The model's reasoning (if it shares any) arrives as agent.thinking; its answer as agent.token… then agent.done with the model's name.",
   "The Chat page folds each event into the conversation with a reducer — that's the live typing effect. Citations like [handbook.md#2] become chips.",
   'Stop sends {type: "agent.cancel"}: the run is cancelled on Hatchet, the worker stops streaming at the next token, and the partial answer is saved as stopped.',
+  "Delete (trash icon → confirm) is REST: DELETE /api/chat/conversations/<id>/. If the chat is still answering, chat cancels its run on Hatchet (Conversation.active_run_id) and pushes agent.cancelled with cancel_background=<run_id> to user.<id>, so whichever socket relays that run stops it. Then the conversation is deleted and its messages cascade; the relay's save finds nothing to save into.",
 ];
 
 export const JOB_FLOW = [
@@ -442,6 +443,7 @@ export const GOTCHAS = [
   "Reasoning models (Gemma, DeepSeek-R1…) spend part of max_tokens thinking before they answer. A judge with a small budget returns cut-off or empty JSON — so judges get 2000 tokens, cut-off replies are salvaged, and an unreadable verdict fails the case instead of counting as n/a.",
   "Never let a missing score pass: n/a is only for metrics that genuinely don't apply (retrieval on a bare model); an evaluation that broke is a failure you can retry.",
   "Changing the embedding model invalidates every stored vector (different models' vectors aren't comparable), so it always triggers a full re-index — hence the confirmation dialog.",
+  "A reply is only saved when its stream ends, so a REST request (deleting the chat) can't see that a run is in flight unless you store it — hence Conversation.active_run_id. And the relay lives in whichever Daphne process holds the socket, so the delete reaches it through the user.<id> group (cancel_background), not directly.",
   "Tokens live in localStorage for simplicity. Production apps usually prefer httpOnly cookies to limit XSS damage.",
 ];
 

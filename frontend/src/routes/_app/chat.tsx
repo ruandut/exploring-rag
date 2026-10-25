@@ -1,14 +1,21 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { MessageSquarePlus } from "lucide-react";
+import { MessageSquarePlus, Trash2 } from "lucide-react";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { modelLabel, useAgents } from "@/features/agents/api";
-import { fetchConversation, toTurns, useConversations } from "@/features/chat/api";
+import {
+  type ConversationSummary,
+  fetchConversation,
+  toTurns,
+  useConversations,
+  useDeleteConversation,
+} from "@/features/chat/api";
 import { AssistantMessage } from "@/features/chat/assistant-message";
 import { Composer } from "@/features/chat/composer";
+import { DeleteConversationDialog } from "@/features/chat/delete-conversation-dialog";
 import { type AssistantTurn, conversationReducer } from "@/features/chat/conversation";
 import { useSocketEvents, useSocketStatus } from "@/hooks/use-socket";
 import { socket } from "@/lib/socket";
@@ -56,6 +63,11 @@ function ChatPage() {
   // The conversation these turns belong to. Kept in a ref so a URL change we made ourselves
   // (after the server assigns an id) doesn't reload and wipe the live stream.
   const current = useRef<number | null>(null);
+  // Conversations deleted in this tab. A run that was still starting can report agent.started
+  // for one of them afterwards; following it would navigate back to a chat that's gone.
+  const deleted = useRef(new Set<number>());
+  const [toDelete, setToDelete] = useState<ConversationSummary | null>(null);
+  const deleteConversation = useDeleteConversation();
 
   useEffect(() => {
     const id = search.c ?? null;
@@ -75,11 +87,18 @@ function ChatPage() {
   }, [search.c]);
 
   useSocketEvents((event) => {
-    if (event.type === "agent.started" && event.conversation_id && current.current === null) {
+    if (
+      event.type === "agent.started" &&
+      event.conversation_id &&
+      current.current === null &&
+      !deleted.current.has(event.conversation_id)
+    ) {
       current.current = event.conversation_id;
       void navigate({ search: { c: event.conversation_id }, replace: true });
     }
     if (
+      // started: a new chat appears in the list (and can be deleted) while it is answering
+      event.type === "agent.started" ||
       event.type === "agent.done" ||
       event.type === "agent.cancelled" ||
       event.type === "agent.error"
@@ -120,6 +139,27 @@ function ChatPage() {
     if (active?.runId) socket.send({ type: "agent.cancel", run_id: active.runId });
   }
 
+  function confirmDelete(target: ConversationSummary) {
+    setToDelete(null);
+    deleted.current.add(target.id);
+    deleteConversation.mutate(target.id, {
+      onSuccess: () => {
+        // Deleting the open chat: drop its turns (incl. a reply still streaming — the server
+        // has cancelled the run) and go back to an empty chat.
+        if (current.current === target.id) {
+          current.current = null;
+          dispatch({ kind: "load", turns: [] });
+          void navigate({ search: {} });
+        }
+        toast.success("Chat deleted");
+      },
+      onError: () => {
+        deleted.current.delete(target.id);
+        toast.error("Couldn't delete that chat");
+      },
+    });
+  }
+
   const composer = (autoFocus: boolean) => (
     <Composer
       draft={draft}
@@ -152,12 +192,12 @@ function ChatPage() {
         >
           <ul className="grid gap-0.5">
             {conversations.data?.map((c) => (
-              <li key={c.id}>
+              <li key={c.id} className="group relative">
                 <Link
                   to="/chat"
                   search={{ c: c.id }}
                   className={cn(
-                    "block rounded-md px-2 py-1.5 text-sm hover:bg-muted",
+                    "block rounded-md py-1.5 pr-8 pl-2 text-sm hover:bg-muted",
                     search.c === c.id && "bg-muted font-medium",
                   )}
                 >
@@ -166,6 +206,18 @@ function ChatPage() {
                     {c.agent_name}
                   </span>
                 </Link>
+                {/* A sibling of the link, not inside it: a button nested in an <a> is invalid
+                    and screen readers would read both as one control. Shown on hover/focus. */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Delete "${c.title}"`}
+                  title="Delete chat"
+                  onClick={() => setToDelete(c)}
+                  className="absolute top-1/2 right-1 size-7 -translate-y-1/2 text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                >
+                  <Trash2 className="size-4" />
+                </Button>
               </li>
             ))}
           </ul>
@@ -176,6 +228,13 @@ function ChatPage() {
           )}
         </nav>
       </aside>
+      {toDelete && (
+        <DeleteConversationDialog
+          title={toDelete.title}
+          onConfirm={() => confirmDelete(toDelete)}
+          onCancel={() => setToDelete(null)}
+        />
+      )}
 
       <div className="flex min-w-0 flex-1 flex-col">
         {turns.length === 0 ? (
