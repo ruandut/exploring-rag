@@ -1,4 +1,6 @@
-"""LLM-as-judge: one call per metric per case, with a fixed rubric, at temperature 0.
+"""LLM-as-judge: one call per metric per case, with a fixed rubric (at temperature 0 where the
+provider allows it — current Claude models reject sampling parameters, so the rubric does the
+work).
 
 Simpler than RAGAS (which splits answers into claims and checks each one): a single rubric
 call returning JSON {"score": 0..1, "reasoning": "..."}. Cheaper — fine for local judges —
@@ -8,8 +10,6 @@ but coarser. The reasoning is stored so every score can be audited.
 import json
 import re
 from dataclasses import dataclass
-
-from openai import OpenAI
 
 RUBRICS = {
     "faithfulness": "Is every claim in the ANSWER supported by the CONTEXT? 1 = fully supported, "
@@ -72,12 +72,8 @@ def parse(reply: str) -> Verdict:
     return Verdict(None, f"The judge's reply wasn't valid JSON: {reply[:200]}")
 
 
-def judge(client: OpenAI, model: str, metric_id: str, **fields) -> Verdict:
-    res = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": build_prompt(metric_id, **fields)}],
-        temperature=0,
-        # Generous: reasoning models (e.g. Gemma, DeepSeek-R1) spend part of this thinking.
-        max_tokens=2000,
-    )
-    return parse(res.choices[0].message.content or "")
+def judge(llm, metric_id: str, **fields) -> Verdict:
+    """llm: anything with complete(prompt, max_tokens) — a providers ChatTarget, so the judge
+    runs on whichever provider and model the suite chose."""
+    # Generous: reasoning models (e.g. Gemma, DeepSeek-R1, Claude) spend part of this thinking.
+    return parse(llm.complete(build_prompt(metric_id, **fields), max_tokens=2000))

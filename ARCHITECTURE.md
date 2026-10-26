@@ -54,7 +54,9 @@
 | **pgvector** (Python) | `VectorField` + extension migration | `apps/core/migrations/0001_pgvector.py`, `apps/rag/models.py` |
 | **pypdf**, **python-docx** | Extracting text from PDF and Word files | `apps/rag/parsing.py` |
 | **django.contrib.postgres** | Generated `tsvector` + GIN index for keyword search | `apps/rag/models.py` |
-| **openai** SDK | Talking to any OpenAI-compatible endpoint (chat + embeddings) | `apps/providers/services.py` |
+| **openai** SDK | OpenAI-compatible endpoints (chat + embeddings) | `apps/providers/llm/openai_compat.py` |
+| **anthropic** SDK | Claude via the Messages API: adaptive thinking, effort, refusal fallbacks, prompt caching | `apps/providers/llm/anthropic_adapter.py` |
+| **google-genai** SDK | Gemini: thought summaries, function calling, embeddings | `apps/providers/llm/google_adapter.py` |
 | **cryptography** (Fernet) | Encrypting LLM API keys at rest (`FIELD_ENCRYPTION_KEY`) | `apps/providers/crypto.py` |
 | **django-environ** | Settings from `backend/.env` | `config/settings.py` |
 | **pytest / pytest-django / ruff** | Tests and lint/format | `conftest.py`, `apps/*/test_*.py` |
@@ -82,7 +84,7 @@ An app may import only from lower layers, and only the ones listed for it in
 | `accounts` | platform | users, JWT login/refresh, `/me` | ✅ |
 | `realtime` | platform | websocket gateway, `send_to_user()`, ws message-handler registry | ✅ |
 | `jobs` | platform | Hatchet client, worker, task auto-discovery, demo tasks + demo ws handlers | ✅ |
-| `providers` | domain | default provider (Fernet-encrypted key), extra **connections** (e.g. Ollama), `chat_target()`, `embedding_client()`, model catalogue (`catalog.py`: kind, dimensions, tools), Test connection | ✅ 0004–0005, 0010 |
+| `providers` | domain | default provider + **connections**, each with a **kind** (OpenAI-compatible / Anthropic / Google); the **adapter layer** `llm/` (one neutral interface, one adapter per kind, the only place a provider SDK is imported); `adapter_for()`, `chat_target()`, model catalogue, Test connection | ✅ 0004–0005, 0008, 0010 |
 | `library` | domain | folders, documents, uploads, statuses; emits `document.uploaded` / `document.moved` / `document.reindex_requested` | ✅ 0003, 0010 |
 | `rag` | domain | **embeddings** (`EmbeddingIndex`: coverage, model, chunking), indexing per embedding (parse once, chunk + embed per index) + answering in one index (`retrieval.py`, `generation.py`) | ✅ 0003–0005, 0010 |
 | `agents` | domain | agent config (system message + RAG options), agent loop (`runner.py`), `agent-run` task | ✅ 0005, 0010 |
@@ -116,7 +118,7 @@ How domain apps plug into the platform without the platform importing them:
 | Worker → Redis → Channels | `asend_to_user()` → `group_send("user.<id>")` | Job progress reaches every open tab |
 | API (delete chat) → Hatchet + Redis → Channels | `runs.cancel(active_run_id)`; `send_to_user(..., cancel_background=run_id)` | A REST request stops a run and the relay task held by whichever socket started it |
 | Worker → Postgres | Django ORM | Store chunks/vectors, read config |
-| Worker → LLM | OpenAI-compatible HTTP (streaming) | ✅ embeddings via each embedding's endpoint + model; chat via the chat's chosen connection + model (default or e.g. Ollama at `localhost:11434/v1`) |
+| Worker → LLM | Through an adapter: OpenAI-compatible HTTP, Anthropic Messages, or Gemini (streaming) | ✅ embeddings via each embedding's endpoint + model; chat via the chat's chosen connection + model (default, Ollama, Claude or Gemini) |
 | API → LLM | OpenAI-compatible HTTP (+ Ollama's `/api/version`, `/api/show`) | Test connection (chat), embedding Test (one embedding call), model picker catalogue |
 | library → rag | Hatchet events `document.uploaded`, `document.moved`, `document.reindex_requested` | Lower layer triggers higher layer without importing it |
 | rag → library | `library.services.set_status()` | Higher layer may call lower; also sends websocket `document.status` |
@@ -222,4 +224,5 @@ Boundaries (`metric · aggregate · comparator · value`) decide pass/fail for a
 | 2026-10-24 | An unreadable judge verdict fails the case | Found with real Gemma: reasoning models spend tokens thinking, so judges returned cut-off/empty JSON and runs passed with n/a scores. A broken evaluation must never look like a pass. |
 | 2026-10-24 | `evals` may import `scoring` and `providers` | Suites validate metric ids against the scoring registry and pick a judge connection; neither app depends back, so no cycle. |
 | 2026-10-25 | Embeddings are named indexes (spec 0010); one model per index; chat picks agent + embedding + model | Lets you compare models and chunking on the same documents. Retrieval filters by `embedding_index_id`, so indexes never mix; `provider.embedding_changed` is gone because the model lives inside `rag`; `chat → rag` added. |
+| 2026-10-25 | Native provider adapters behind one neutral interface (spec 0008) | Claude and Gemini through their own SDKs so thinking, refusals and caching work properly; the agent loop, retrieval, judges and indexing stay single, provider-free code paths, and the UI's `agent.*` events don't change per provider. |
 | 2026-10-25 | Deleting a chat cancels its run via `Conversation.active_run_id` + `cancel_background` on the user group | Replies are saved only when the stream ends, so the run had to be recorded to be findable from REST; the relay lives in the socket's process, so the platform group message (not a new event type) reaches it. |

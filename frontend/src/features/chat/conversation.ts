@@ -83,6 +83,9 @@ export function conversationReducer(turns: Turn[], action: Action): Turn[] {
     case "agent.error":
       next.status = "error";
       next.error = e.detail;
+      // A failed answer (an outage, or a model that declined part-way) isn't shown as if it
+      // were half an answer. Stop is different: agent.cancelled keeps the partial text.
+      next.text = "";
       break;
   }
   return turns.with(index, next);

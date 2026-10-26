@@ -226,7 +226,7 @@ Then("the answer comes from {string}", async function (this: AppWorld, label: st
   await chat.answeredWith(answer).filter({ hasText: label }).waitFor();
   const model = label.split(" · ").at(-1)!;
   assert.ok(
-    this.fakeLlm.requests.some((r) => r.includes("/chat/completions") && r.endsWith(` ${model}`)),
+    this.fakeLlm.chats.includes(model),
     `The provider never received a request for ${model}`,
   );
 });

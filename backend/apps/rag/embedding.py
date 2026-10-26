@@ -1,20 +1,19 @@
-"""Step 4 of indexing: turn chunk texts into vectors with the user's provider."""
+"""Step 4 of indexing: turn chunk texts into vectors, with whichever provider the embedding uses.
+
+Batching lives here, once, for every provider; the adapter embeds one batch."""
 
 from collections.abc import Callable
 
-from openai import OpenAI
+from apps.providers.llm import Adapter
 
 BATCH_SIZE = 64  # inputs per embeddings request; keeps requests well under provider limits
 
 
-def make_embedder(client: OpenAI, model: str) -> Callable[[list[str]], list[list[float]]]:
+def make_embedder(adapter: Adapter, model: str) -> Callable[[list[str]], list[list[float]]]:
     def embed(texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
         for start in range(0, len(texts), BATCH_SIZE):
-            batch = texts[start : start + BATCH_SIZE]
-            res = client.embeddings.create(model=model, input=batch)
-            # Providers may return items out of order; `index` is authoritative.
-            vectors.extend(item.embedding for item in sorted(res.data, key=lambda d: d.index))
+            vectors.extend(adapter.embed(model, texts[start : start + BATCH_SIZE]))
         return vectors
 
     return embed

@@ -10,12 +10,12 @@ case ──▶ target (agent loop, or a bare model) ──▶ answer + retrieved
 import time
 
 from django.core.exceptions import ObjectDoesNotExist
-from openai import OpenAIError
 
 from apps.agents import runner
 from apps.agents import services as agent_services
 from apps.providers import selectors as provider_selectors
 from apps.providers import services as provider_services
+from apps.providers.llm import ProviderError, Text
 from apps.rag import selectors as rag_selectors
 from apps.rag.tokens import count_tokens
 from apps.scoring import judge, retrieval
@@ -42,11 +42,9 @@ def execute(result: CaseResult) -> CaseResult:
         result.tokens = count_tokens(answer)
         result.latency_ms = int((time.monotonic() - started) * 1000)
         scores, explanations = _score(run, case, answer, retrieved, run.owner)
-    except (OpenAIError, ValueError, ObjectDoesNotExist) as exc:
+    except (ProviderError, ValueError, ObjectDoesNotExist) as exc:
         result.status = CaseResult.Status.FAILED
-        result.error = (
-            provider_services.error_message(exc) if isinstance(exc, OpenAIError) else str(exc)
-        )
+        result.error = str(exc)
         result.passed = False
         return result
 
@@ -92,19 +90,13 @@ def _ask_target(run: BenchmarkRun, question: str) -> tuple[str, list[dict], int 
         target = provider_services.chat_target(
             run.owner, connection=connection, model=snap["model"]
         )
-        stream = target.client.chat.completions.create(
-            model=target.model,
-            messages=[
-                {"role": "system", "content": BARE_SYSTEM},
-                {"role": "user", "content": question},
-            ],
-            stream=True,
-        )
         parts = []
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
+        for event in target.adapter.stream_chat(
+            target.model, system=BARE_SYSTEM, history=[{"role": "user", "content": question}]
+        ):
+            if isinstance(event, Text):
                 mark_first({"type": "agent.token"})
-                parts.append(chunk.choices[0].delta.content)
+                parts.append(event.text)
         answer, retrieved = "".join(parts), []
     ttft = int((first_token[0] - started) * 1000) if first_token else None
     return answer, retrieved, ttft
@@ -177,8 +169,7 @@ def _score(run: BenchmarkRun, case: dict, answer: str, retrieved: list[dict], ow
         elif metric.kind == "judge":
             judge_target = judge_target or _judge_target(run, owner)
             verdict = judge.judge(
-                judge_target.client,
-                judge_target.model,
+                judge_target,
                 metric_id,
                 question=case["question"],
                 answer=answer,

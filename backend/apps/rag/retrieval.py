@@ -13,11 +13,10 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from django.db import connection
-from openai import OpenAI
 
 from apps.library import selectors as library_selectors
 
-from .llm import complete, parse_int_list
+from .llm import Completer, parse_int_list
 from .models import HNSW_DIMENSIONS, Chunk, EmbeddingIndex
 
 RRF_K = 60  # standard constant; dampens the influence of exact rank positions
@@ -69,8 +68,7 @@ def search(
     index: EmbeddingIndex,
     folder_ids: Sequence[int] | None = None,
     embed: Callable[[list[str]], list[list[float]]],
-    client: OpenAI,
-    chat_model: str,
+    llm: Completer,
 ) -> list[Retrieved]:
     doc_ids = (
         library_selectors.document_ids_in_folders(user, list(folder_ids)) if folder_ids else None
@@ -82,18 +80,14 @@ def search(
     queries = [query]
     dense_text = {query: query}
     if config.query_transform == "multi_query":
-        reply = complete(
-            client,
-            chat_model,
+        reply = llm.complete(
             "Write 3 different search queries that would find information to answer the "
             f"question below. One per line, no numbering.\n\nQuestion: {query}",
         )
         queries += [q.strip(" -•\t") for q in reply.splitlines() if q.strip()][:3]
     elif config.query_transform == "step_back":
         queries.append(
-            complete(
-                client,
-                chat_model,
+            llm.complete(
                 "Rewrite this as a broader, more general question. "
                 f"Reply with the question only.\n\n{query}",
             )
@@ -101,9 +95,7 @@ def search(
     elif config.query_transform == "hyde":
         # Hypothetical Document Embeddings: embed a made-up answer, which looks more like the
         # passages we want than the question does. Keyword search still uses the question.
-        dense_text[query] = complete(
-            client,
-            chat_model,
+        dense_text[query] = llm.complete(
             f"Write a short passage (3 sentences) that answers this question:\n\n{query}",
         )
 
@@ -124,7 +116,7 @@ def search(
     chunks = hydrate(ranked[:want])
 
     if config.rerank == "llm" and len(chunks) > 1:
-        chunks = llm_rerank(client, chat_model, query, chunks)
+        chunks = llm_rerank(llm, query, chunks)
     return chunks[: config.top_k]
 
 
@@ -268,12 +260,10 @@ def hydrate(ranked: Ranked) -> list[Retrieved]:
     return out
 
 
-def llm_rerank(client: OpenAI, model: str, query: str, chunks: list[Retrieved]) -> list[Retrieved]:
+def llm_rerank(llm: Completer, query: str, chunks: list[Retrieved]) -> list[Retrieved]:
     """Ask the LLM to order the candidates by relevance. Falls back to the original order."""
     passages = "\n\n".join(f"[{i}] {c.text[:600]}" for i, c in enumerate(chunks))
-    reply = complete(
-        client,
-        model,
+    reply = llm.complete(
         f"Question: {query}\n\nPassages:\n{passages}\n\nReturn a JSON array of passage numbers "
         "ordered from most to least relevant to the question. Reply with the array only.",
         max_tokens=100,

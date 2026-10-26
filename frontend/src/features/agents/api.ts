@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import type { ProviderKind } from "@/features/settings/kinds";
 import { api } from "@/lib/api";
 
 // --- agents (apps.agents) ----------------------------------------------------------------
@@ -18,6 +19,7 @@ export type Agent = {
   id: number;
   name: string;
   system_message: string;
+  effort: "" | "low" | "medium" | "high" | "xhigh" | "max"; // "" = high; ignored by some providers
   rag_config: RagConfig;
   updated_at: string;
 };
@@ -74,6 +76,7 @@ export function pipelineLabel(agent: Agent): string {
 export type Connection = {
   id: number;
   name: string;
+  kind: ProviderKind;
   base_url: string;
   api_key_last4: string;
   has_api_key: boolean;
@@ -96,6 +99,7 @@ export function useSaveConnection() {
     }: {
       id?: number;
       name: string;
+      kind: ProviderKind;
       base_url: string;
       api_key?: string;
     }) =>

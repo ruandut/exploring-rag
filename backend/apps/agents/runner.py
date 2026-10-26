@@ -6,19 +6,28 @@
                                                                 no ──▶ streamed answer ◀┘
 
 Every step is reported through `emit` (agent.thinking / tool_call / retrieval / token), which the
-Hatchet task turns into stream chunks for the browser.
+Hatchet task turns into stream chunks for the browser. Those events are the same whichever
+provider answers: the loop talks to a providers adapter (spec 0008), which turns OpenAI-,
+Anthropic- or Google-specific streams into neutral Thinking / Text / ToolCall / Done events.
 
 Models that can't call tools (many small local models) fall back to classic "retrieve then
 answer" RAG: search once with the question, put the results in the prompt, stream the answer.
 """
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from openai import BadRequestError, OpenAI
-
 from apps.providers import services as provider_services
+from apps.providers.llm import (
+    Cancelled,
+    Done,
+    ProviderError,
+    Text,
+    Thinking,
+    Tool,
+    ToolCall,
+    ToolsUnsupported,
+)
 from apps.providers.models import Connection
 from apps.rag import generation, retrieval
 from apps.rag.embedding import make_embedder
@@ -27,30 +36,26 @@ from apps.rag.models import EmbeddingIndex
 from .models import Agent
 
 MAX_STEPS = 4  # tool rounds before the model must answer
+REFUSED = "The model declined to answer"
 
-SEARCH_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "search_documents",
-        "description": "Search the user's documents for passages relevant to a query.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "What to look for — a question or keywords.",
-                }
-            },
-            "required": ["query"],
+SEARCH_TOOL = Tool(
+    name="search_documents",
+    description="Search the user's documents for passages relevant to a query.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "What to look for — a question or keywords.",
+            }
         },
+        "required": ["query"],
     },
-}
+)
 
 Emit = Callable[[dict], None]
 
-
-class Cancelled(Exception):
-    pass
+__all__ = ["Cancelled", "RunResult", "run"]  # Cancelled is re-exported for the agent-run task
 
 
 @dataclass
@@ -92,24 +97,17 @@ def run(
     # The query is embedded by the embedding's own model and endpoint — vectors are only
     # comparable with vectors from the same model — whichever model writes the answer.
     embed = (
-        make_embedder(
-            provider_services.embedding_client(user, embedding.connection), embedding.model
-        )
+        make_embedder(provider_services.adapter_for(user, embedding.connection), embedding.model)
         if embedding
         else None
     )
+    turn = _Turn(target, emit, result, is_cancelled, agent.effort or "high")
 
     def do_search(query: str) -> list[retrieval.Retrieved]:
         if embed is None:
             return []
         return retrieval.search(
-            user,
-            query,
-            config=search_cfg,
-            index=embedding,
-            embed=embed,
-            client=target.client,
-            chat_model=target.model,
+            user, query, config=search_cfg, index=embedding, embed=embed, llm=target
         )
 
     def search_tool(query: str) -> str:
@@ -119,117 +117,101 @@ def run(
             text, used = "Document search is unavailable: no embedding is selected.", []
         else:
             text, used = generation.tool_result(
-                strategy,
-                question,
-                do_search(query),
-                client=target.client,
-                model=target.model,
-                research=do_search,
+                strategy, question, do_search(query), llm=target, research=do_search
             )
         events = [c.as_event() for c in used]
         result.retrieved.extend(events)
         emit({"type": "agent.retrieval", "chunks": events})
         return text
 
+    # Neutral history (see providers/llm/base.py): append-only, never edited.
+    history = [{"role": m["role"], "content": m["content"]} for m in messages]
+
     if embedding is None:
         # Nothing to search: no tool, no RAG instructions — just the agent and the model.
-        convo = [{"role": "system", "content": agent.system_message.strip()}, *messages]
-        if not convo[0]["content"]:
-            convo = convo[1:]
         result.mode = "model"
-        _stream(target.client, target.model, convo, None, emit, result, is_cancelled)
+        turn(agent.system_message.strip(), history, None)
         return result
 
     system = "\n\n".join(
         p for p in (agent.system_message.strip(), generation.system_instructions(strategy)) if p
     )
-    convo: list[dict] = [{"role": "system", "content": system}, *messages]
-
     try:
-        _agentic(target.client, target.model, convo, search_tool, emit, result, is_cancelled)
-    except BadRequestError as exc:
-        if "tool" not in provider_services.error_message(exc).lower():
-            raise
+        _agentic(turn, system, history, search_tool, question)
+    except ToolsUnsupported:
         result.mode = "pipeline"
         note = "This model can't call tools, so I searched once with your question.\n"
         result.thinking += note
         emit({"type": "agent.thinking", "text": note})
         context = search_tool(question)
-        convo[-1] = {
+        history[-1] = {
             "role": "user",
             "content": f"Passages from my documents:\n\n{context}\n\nQuestion: {question}",
         }
-        _stream(target.client, target.model, convo, None, emit, result, is_cancelled)
+        turn(system, history, None)
     return result
 
 
-def _agentic(client, model, convo, search_tool, emit, result, is_cancelled) -> None:
+def _agentic(turn: _Turn, system: str, history: list[dict], search_tool, question: str) -> None:
     for step in range(MAX_STEPS):
         last = step == MAX_STEPS - 1
-        content, calls = _stream(
-            client, model, convo, None if last else [SEARCH_TOOL], emit, result, is_cancelled
-        )
-        if not calls:
+        text, calls, done = turn(system, history, None if last else [SEARCH_TOOL])
+        if done.stop != "tool_calls" or not calls:
             return
-        convo.append(
+        history.append(
             {
                 "role": "assistant",
-                "content": content or None,
-                "tool_calls": [
-                    {
-                        "id": c["id"],
-                        "type": "function",
-                        "function": {"name": c["name"], "arguments": c["arguments"]},
-                    }
-                    for c in calls
-                ],
+                "content": text,
+                "tool_calls": [{"id": c.id, "name": c.name, "args": c.args} for c in calls],
+                "raw": done.raw,  # resent unchanged by the same adapter (signed thinking etc.)
             }
         )
         for c in calls:
-            try:
-                query = json.loads(c["arguments"] or "{}").get("query", "")
-            except json.JSONDecodeError:
-                query = ""
-            text = search_tool(query or convo[1 if len(convo) > 1 else 0]["content"])
-            convo.append({"role": "tool", "tool_call_id": c["id"], "content": text})
+            query = (c.args or {}).get("query")
+            if c.name != SEARCH_TOOL.name or not isinstance(query, str) or not query.strip():
+                # Malformed or truncated arguments: tell the model instead of guessing.
+                content = 'Invalid arguments: call search_documents with {"query": "<text>"}.'
+            else:
+                content = search_tool(query)
+            history.append(
+                {"role": "tool", "tool_call_id": c.id, "name": c.name, "content": content}
+            )
 
 
-def _stream(
-    client: OpenAI, model, convo, tools, emit, result: RunResult, is_cancelled
-) -> tuple[str, list[dict]]:
-    """One streamed completion. Emits tokens / reasoning as they arrive; returns the text and
-    any tool calls (whose names and JSON arguments arrive in fragments)."""
-    kwargs = {"model": model, "messages": convo, "stream": True}
-    if tools:
-        kwargs["tools"] = tools
-    stream = client.chat.completions.create(**kwargs)
-    text: list[str] = []
-    calls: dict[int, dict] = {}
-    try:
-        for chunk in stream:
-            if is_cancelled():
-                raise Cancelled
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            # Reasoning isn't in the OpenAI schema; DeepSeek / OpenRouter / Ollama add it as an
-            # extra field (reasoning_content or reasoning).
-            extra = delta.model_extra or {}
-            reasoning = extra.get("reasoning_content") or extra.get("reasoning")
-            if reasoning:
-                result.thinking += reasoning
-                emit({"type": "agent.thinking", "text": reasoning})
-            if delta.content:
-                text.append(delta.content)
-                result.answer += delta.content
-                emit({"type": "agent.token", "text": delta.content})
-            for tc in delta.tool_calls or []:
-                slot = calls.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
-                slot["id"] = tc.id or slot["id"] or f"call_{tc.index}"
-                if tc.function and tc.function.name:
-                    slot["name"] = tc.function.name
-                if tc.function and tc.function.arguments:
-                    slot["arguments"] += tc.function.arguments
-    finally:
-        stream.close()
-    return "".join(text), [calls[i] for i in sorted(calls)]
+@dataclass
+class _Turn:
+    """One streamed model turn, folded into agent.* events and the RunResult."""
+
+    target: provider_services.ChatTarget
+    emit: Emit
+    result: RunResult
+    is_cancelled: Callable[[], bool]
+    effort: str
+
+    def __call__(self, system: str, history: list[dict], tools) -> tuple[str, list[ToolCall], Done]:
+        text: list[str] = []
+        calls: list[ToolCall] = []
+        done = Done("end")
+        for event in self.target.adapter.stream_chat(
+            self.target.model,
+            system=system,
+            history=history,
+            tools=tools,
+            effort=self.effort,
+            is_cancelled=self.is_cancelled,
+        ):
+            if isinstance(event, Thinking):
+                self.result.thinking += event.text
+                self.emit({"type": "agent.thinking", "text": event.text})
+            elif isinstance(event, Text):
+                text.append(event.text)
+                self.result.answer += event.text
+                self.emit({"type": "agent.token", "text": event.text})
+            elif isinstance(event, ToolCall):
+                calls.append(event)
+            elif isinstance(event, Done):
+                done = event
+        if done.stop == "refusal":
+            # Reported like any other failure (agent.error) — even if some text already streamed.
+            raise ProviderError(REFUSED, permanent=True)
+        return "".join(text), calls, done

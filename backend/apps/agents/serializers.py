@@ -26,6 +26,7 @@ class AgentSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "system_message",
+            "effort",
             "rag_config",
             "updated_at",
         ]

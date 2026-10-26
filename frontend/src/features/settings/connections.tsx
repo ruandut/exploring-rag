@@ -13,9 +13,11 @@ import {
 } from "@/features/agents/api";
 import { ApiError } from "@/lib/api";
 
+import { KindSelect } from "./kind-select";
+import { kindLabel, needsBaseUrl, PRESETS, type ProviderKind } from "./kinds";
 import { Field } from "./provider-form";
 
-/** Extra OpenAI-compatible endpoints agents can chat with — e.g. a local Ollama. */
+/** Extra endpoints to chat or embed with — e.g. a local Ollama, Claude or Gemini. */
 export function Connections() {
   const connections = useConnections();
   return (
@@ -49,6 +51,7 @@ function ConnectionRow({ connection }: { connection: Connection }) {
       <div className="flex flex-wrap items-center gap-2">
         <Cpu className="size-4 text-muted-foreground" />
         <span className="font-medium">{connection.name}</span>
+        <span className="text-xs text-muted-foreground">{kindLabel(connection.kind)}</span>
         <code className="truncate text-xs text-muted-foreground">{connection.base_url}</code>
         <div className="ml-auto flex gap-1">
           <Button size="sm" variant="outline" onClick={() => setShowModels(true)}>
@@ -80,6 +83,7 @@ function ConnectionRow({ connection }: { connection: Connection }) {
 
 function NewConnection() {
   const [name, setName] = useState("");
+  const [kind, setKind] = useState<ProviderKind>("openai");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const save = useSaveConnection();
@@ -94,11 +98,17 @@ function NewConnection() {
       onSubmit={(e) => {
         e.preventDefault();
         save.mutate(
-          { name: name.trim(), base_url: baseUrl.trim(), ...(apiKey ? { api_key: apiKey } : {}) },
+          {
+            name: name.trim(),
+            kind,
+            base_url: baseUrl.trim(),
+            ...(apiKey ? { api_key: apiKey } : {}),
+          },
           {
             onSuccess: (c) => {
               toast.success(`Added ${c.name}`);
               setName("");
+              setKind("openai");
               setBaseUrl("");
               setApiKey("");
             },
@@ -108,18 +118,25 @@ function NewConnection() {
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-medium">Add a connection</h3>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setName("Ollama (local)");
-            setBaseUrl("http://localhost:11434/v1");
-          }}
-        >
-          Ollama (local)
-        </Button>
+        <div className="flex flex-wrap gap-1.5">
+          {PRESETS.filter((p) => p.name !== "OpenAI").map((p) => (
+            <Button
+              key={p.name}
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setName(p.name);
+                setKind(p.kind);
+                setBaseUrl(p.base_url);
+              }}
+            >
+              {p.name}
+            </Button>
+          ))}
+        </div>
       </div>
+      <KindSelect id="connection-kind" value={kind} onChange={setKind} />
       <div className="grid gap-4 sm:grid-cols-2">
         <Field id="connection-name" label="Connection name" error={errors.name?.join(" ")}>
           <Input
@@ -134,8 +151,8 @@ function NewConnection() {
             id="connection-url"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="http://localhost:11434/v1"
-            required
+            placeholder={needsBaseUrl(kind) ? "http://localhost:11434/v1" : "Provider default"}
+            required={needsBaseUrl(kind)}
           />
         </Field>
       </div>

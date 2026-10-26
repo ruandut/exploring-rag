@@ -25,6 +25,7 @@ export type CoveredDocument = {
 
 export type EmbeddingSetup = {
   model?: string;
+  connection?: number | null; // null / left out = the default provider
   allDocuments?: boolean;
   folders?: number[];
   documents?: number[];
@@ -51,6 +52,7 @@ export async function embeddingId(world: AppWorld, name: string): Promise<number
 export async function ensureEmbedding(world: AppWorld, name: string, setup: EmbeddingSetup) {
   const body = {
     name,
+    connection: setup.connection ?? null,
     model: setup.model ?? "fake-embed",
     dimensions: null,
     all_documents: setup.allDocuments ?? false,

@@ -401,7 +401,7 @@ Then("the judge's requests went to {string}", async function (this: AppWorld, mo
   const page = new BenchmarksPage(this.page);
   await page.waitFinished(page.run$());
   assert.ok(
-    this.fakeLlm.requests.some((r) => r === `POST /v1/chat/completions ${model}`),
+    this.fakeLlm.chats.includes(model),
     `No chat request for ${model}`,
   );
 });

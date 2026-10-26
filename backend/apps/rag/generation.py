@@ -12,9 +12,7 @@ The agent calls the `search_documents` tool; what the tool hands back depends on
 
 from collections.abc import Callable
 
-from openai import OpenAI
-
-from .llm import complete
+from .llm import Completer
 from .retrieval import Retrieved
 
 STRATEGIES = ("stuff", "cited", "map_reduce", "refine", "corrective")
@@ -47,17 +45,14 @@ def tool_result(
     question: str,
     chunks: list[Retrieved],
     *,
-    client: OpenAI,
-    model: str,
+    llm: Completer,
     research: Callable[[str], list[Retrieved]],
 ) -> tuple[str, list[Retrieved]]:
     """Returns (text for the tool message, chunks actually used)."""
     if strategy == "map_reduce" and chunks:
         notes = []
         for c in chunks:
-            note = complete(
-                client,
-                model,
+            note = llm.complete(
                 f"Question: {question}\n\nPassage [{c.tag}]:\n{c.text}\n\nWhat does this passage "
                 "say that helps answer the question? Reply in one or two sentences, or NONE.",
             )
@@ -70,9 +65,7 @@ def tool_result(
     if strategy == "refine" and chunks:
         draft = ""
         for c in chunks:
-            draft = complete(
-                client,
-                model,
+            draft = llm.complete(
                 f"Question: {question}\n\nCurrent draft answer:\n{draft or '(none yet)'}\n\n"
                 f"New passage [{c.tag}]:\n{c.text}\n\n"
                 "Improve the draft using the new passage if it helps; keep [document#chunk] "
@@ -82,11 +75,9 @@ def tool_result(
         return f"Draft answer refined over {len(chunks)} passages:\n{draft}", chunks
 
     if strategy == "corrective":
-        relevant = [c for c in chunks if _is_relevant(client, model, question, c)]
+        relevant = [c for c in chunks if _is_relevant(llm, question, c)]
         if not relevant:
-            rewritten = complete(
-                client,
-                model,
+            rewritten = llm.complete(
                 "The search for this question found nothing useful. "
                 f"Write a better search query.\n\n{question}",
             )
@@ -96,10 +87,8 @@ def tool_result(
     return format_chunks(chunks), chunks
 
 
-def _is_relevant(client: OpenAI, model: str, question: str, chunk: Retrieved) -> bool:
-    reply = complete(
-        client,
-        model,
+def _is_relevant(llm: Completer, question: str, chunk: Retrieved) -> bool:
+    reply = llm.complete(
         f"Question: {question}\n\nPassage:\n{chunk.text}\n\nDoes the passage help answer the "
         "question? Reply yes or no.",
         max_tokens=3,

@@ -8,12 +8,11 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db import close_old_connections
 from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy, Context
 from hatchet_sdk.exceptions import NonRetryableException
-from openai import OpenAIError
 from pydantic import BaseModel
 
 from apps.jobs.hatchet import get_hatchet
 from apps.providers import selectors as provider_selectors
-from apps.providers.services import error_message
+from apps.providers.llm import ProviderError
 from apps.rag import selectors as rag_selectors
 
 from . import runner
@@ -81,8 +80,8 @@ def agent_run(input: AgentRunInput, ctx: Context) -> dict:
         return {"model": result.model, "mode": result.mode, "chars": len(result.answer)}
     except runner.Cancelled:
         return {"cancelled": True}
-    except (OpenAIError, ValueError, ObjectDoesNotExist) as exc:
-        detail = error_message(exc) if isinstance(exc, OpenAIError) else str(exc)
+    except (ProviderError, ValueError, ObjectDoesNotExist) as exc:
+        detail = str(exc)
         emit({"type": "agent.error", "detail": detail})
         raise NonRetryableException(detail) from exc
     finally:

@@ -4,13 +4,25 @@ from django.db import models
 from apps.core.models import TimeStampedModel
 
 
+class ProviderKind(models.TextChoices):
+    """Which API an endpoint speaks (spec 0008). Each kind has its own adapter in llm/."""
+
+    OPENAI = "openai", "OpenAI-compatible"
+    ANTHROPIC = "anthropic", "Anthropic"
+    GOOGLE = "google", "Google"
+
+
 class ProviderConfig(TimeStampedModel):
-    """A user's OpenAI-compatible LLM endpoint. One per user (spec 0004)."""
+    """A user's default LLM endpoint. One per user (spec 0004); any kind since spec 0008."""
 
     owner = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="provider_config"
     )
-    base_url = models.URLField(max_length=500)
+    kind = models.CharField(
+        max_length=16, choices=ProviderKind.choices, default=ProviderKind.OPENAI
+    )
+    # Required for OpenAI-compatible endpoints; blank = the SDK's default for Anthropic/Google.
+    base_url = models.URLField(max_length=500, blank=True)
     # Never store or return the plaintext key: see crypto.py and the serializer.
     api_key_encrypted = models.TextField(blank=True)
     api_key_last4 = models.CharField(max_length=4, blank=True)
@@ -22,14 +34,17 @@ class ProviderConfig(TimeStampedModel):
 
 
 class Connection(TimeStampedModel):
-    """An extra OpenAI-compatible endpoint, e.g. a local Ollama: for chatting, and for
-    embedding (an embedding names its connection, or the default provider)."""
+    """An extra endpoint, e.g. a local Ollama or Claude: for chatting, and for embedding (an
+    embedding names its connection, or the default provider)."""
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="connections"
     )
     name = models.CharField(max_length=100)
-    base_url = models.URLField(max_length=500)
+    kind = models.CharField(
+        max_length=16, choices=ProviderKind.choices, default=ProviderKind.OPENAI
+    )
+    base_url = models.URLField(max_length=500, blank=True)
     api_key_encrypted = models.TextField(blank=True)
     api_key_last4 = models.CharField(max_length=4, blank=True)
 

@@ -20,8 +20,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from urllib.parse import urlparse
 
-from .services import build_client
-
 SHOW_CONCURRENCY = 8  # /api/show calls at once
 SHOW_TIMEOUT = 5.0  # seconds per Ollama call
 
@@ -46,6 +44,8 @@ HINTS = {
     "ollama": "Run `ollama pull nomic-embed-text`, then press Refresh.",
     "openai": "Try text-embedding-3-small.",
     "openrouter": "OpenRouter has no embedding models — use another connection.",
+    "anthropic": "Anthropic has no embeddings API — use another connection.",
+    "google": "Try gemini-embedding-001.",
 }
 
 
@@ -74,7 +74,7 @@ def _json(url: str, body: dict | None = None) -> dict:
         raise EndpointError(str(exc)) from exc
 
 
-def _root(base_url: str) -> str:
+def ollama_root(base_url: str) -> str:
     """http://localhost:11434/v1 → http://localhost:11434 (where Ollama's own API lives)."""
     url = base_url.rstrip("/")
     return url[: -len("/v1")] if url.endswith("/v1") else url
@@ -87,14 +87,15 @@ def endpoint_type(base_url: str, api_key: str) -> str:
     if host.endswith("openai.com"):
         return "openai"
     try:
-        if "version" in _json(f"{_root(base_url)}/api/version"):
+        if "version" in _json(f"{ollama_root(base_url)}/api/version"):
             return "ollama"
     except EndpointError:
         pass
     return "openai-compatible"
 
 
-def _from_table_or_name(model_id: str) -> ModelInfo:
+def classify(model_id: str) -> ModelInfo:
+    """Steps 2–4: the built-in table, then the name, then unknown."""
     bare = model_id.split("/")[-1].split(":")[0]
     if bare in KNOWN:
         kind, dims = KNOWN[bare]
@@ -104,11 +105,11 @@ def _from_table_or_name(model_id: str) -> ModelInfo:
     return ModelInfo(model_id, "unknown", "unknown")
 
 
-def _ollama_show(root: str, model_id: str) -> ModelInfo:
+def ollama_show(root: str, model_id: str) -> ModelInfo:
     try:
         body = _json(f"{root}/api/show", {"model": model_id})
     except EndpointError:
-        return _from_table_or_name(model_id)
+        return classify(model_id)
     capabilities = set(body.get("capabilities") or [])
     info = body.get("model_info") or {}
     dims = next((v for k, v in info.items() if k.endswith(".embedding_length")), None)
@@ -116,41 +117,19 @@ def _ollama_show(root: str, model_id: str) -> ModelInfo:
         return ModelInfo(model_id, "embedding", "endpoint", dims)
     if "completion" in capabilities:
         return ModelInfo(model_id, "chat", "endpoint", None, "tools" in capabilities)
-    return _from_table_or_name(model_id)
+    return classify(model_id)
 
 
-def list_models(base_url: str, api_key: str) -> tuple[str, list[ModelInfo]]:
-    """(endpoint type, every model with its kind). Raises OpenAIError if unreachable."""
-    kind = endpoint_type(base_url, api_key)
-    client = build_client(base_url, api_key, timeout=10.0)
-    listed = list(client.models.list())
-    ids = sorted(m.id for m in listed)
-
-    if kind == "ollama":
-        root = _root(base_url)
-        with ThreadPoolExecutor(max_workers=SHOW_CONCURRENCY) as pool:
-            return kind, list(pool.map(lambda m: _ollama_show(root, m), ids))
-
-    if kind == "openrouter":
-        out = []
-        for m in sorted(listed, key=lambda m: m.id):
-            arch = (m.model_extra or {}).get("architecture") or {}
-            outputs = set(arch.get("output_modalities") or [])
-            if "embeddings" in outputs:
-                out.append(ModelInfo(m.id, "embedding", "endpoint"))
-            elif outputs:
-                out.append(ModelInfo(m.id, "chat", "endpoint"))
-            else:
-                out.append(_from_table_or_name(m.id))
-        return kind, out
-
-    return kind, [_from_table_or_name(m) for m in ids]
+def ollama_models(root: str, ids: list[str]) -> list[ModelInfo]:
+    with ThreadPoolExecutor(max_workers=SHOW_CONCURRENCY) as pool:
+        return list(pool.map(lambda m: ollama_show(root, m), ids))
 
 
-def catalogue(base_url: str, api_key: str, *, want: str | None) -> dict:
-    """The picker's payload. want = "embedding" | "chat" keeps that kind plus unknowns (which
-    are always listed); None lists everything."""
-    endpoint, models = list_models(base_url, api_key)
+def catalogue(adapter, *, want: str | None) -> dict:
+    """The picker's payload for any provider. want = "embedding" | "chat" keeps that kind plus
+    unknowns (which are always listed); None lists everything. Raises ProviderError if the
+    endpoint can't be reached."""
+    endpoint, models = adapter.list_models()
     if want in ("embedding", "chat"):
         models = [m for m in models if m.kind in (want, "unknown")]
     has_wanted = any(m.kind == want for m in models)

@@ -202,7 +202,8 @@ def save_reply(
     message = Message.objects.create(
         conversation_id=conversation_id,
         role=Message.Role.ASSISTANT,
-        content=reply.text,
+        # Same as the live view: a failed answer keeps no partial text (cancelled ones do).
+        content="" if status == Message.Status.ERROR else reply.text,
         status=status,
         run_id=run_id,
         metadata={

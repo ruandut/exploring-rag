@@ -3,7 +3,6 @@
 from types import SimpleNamespace
 
 import pytest
-from openai import APIConnectionError
 from rest_framework.test import APIClient
 
 from apps.agents.models import Agent
@@ -11,6 +10,8 @@ from apps.agents.runner import RunResult
 from apps.benchmarks import execution, services
 from apps.benchmarks.models import BenchmarkRun, CaseResult
 from apps.evals import services as eval_services
+from apps.providers.llm import ProviderError
+from apps.providers.llm.testing import Done, FakeAdapter, Text
 from apps.providers.models import ProviderConfig
 from apps.scoring import judge as judge_module
 
@@ -82,13 +83,13 @@ def fake_agent(monkeypatch, answer="The refund window is 30 days [handbook.md#0]
 def fake_judge(monkeypatch, score=1.0):
     seen = []
 
-    def judge(client, model, metric_id, **fields):
-        seen.append((model, metric_id))
+    def judge(llm, metric_id, **fields):
+        seen.append((llm.model, metric_id))
         value = 0.0 if metric_id == "refusal_rate" and "Brazil" in fields["answer"] else score
         return judge_module.Verdict(value, f"{metric_id} looks {value}")
 
     monkeypatch.setattr(execution.judge, "judge", judge)
-    monkeypatch.setattr("apps.providers.services.client_for", lambda user: SimpleNamespace())
+    monkeypatch.setattr("apps.providers.services.build_adapter", lambda *a, **k: FakeAdapter())
     return seen
 
 
@@ -198,23 +199,8 @@ def test_a_boundary_fails_with_its_margin(db, user, setup, monkeypatch):
 def test_bare_models_get_na_retrieval_and_skipped_boundaries(db, user, setup, monkeypatch):
     fake_judge(monkeypatch)
 
-    class Stream:
-        def __init__(self, text):
-            self.chunks = [
-                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=w))])
-                for w in text.split(" ")
-            ]
-
-        def __iter__(self):
-            return iter(self.chunks)
-
-    client = SimpleNamespace(
-        chat=SimpleNamespace(
-            completions=SimpleNamespace(create=lambda **k: Stream("It was Brazil"))
-        )
-    )
-    monkeypatch.setattr("apps.providers.services.build_client", lambda *a, **k: client)
-    monkeypatch.setattr("apps.providers.services.client_for", lambda user: client)
+    bare = FakeAdapter(*[[Text("It was "), Text("Brazil"), Done("end")] for _ in range(2)])
+    monkeypatch.setattr("apps.providers.services.build_adapter", lambda *a, **k: bare)
     [run] = services.start_runs(
         user, setup.suite, [{"kind": "model", "connection": None, "model": "fake-chat"}]
     )
@@ -229,7 +215,7 @@ def test_bare_models_get_na_retrieval_and_skipped_boundaries(db, user, setup, mo
 def test_unreachable_provider_fails_cases_and_retry_reruns_them(
     db, user, setup, monkeypatch, no_hatchet, django_capture_on_commit_callbacks
 ):
-    fake_agent(monkeypatch, error=APIConnectionError(request=SimpleNamespace()))
+    fake_agent(monkeypatch, error=ProviderError("Connection error."))
     fake_judge(monkeypatch)
     [run] = services.start_runs(user, setup.suite, [{"kind": "agent", "agent": setup.agent.pk}])
     run = run_all(run)
@@ -278,7 +264,7 @@ def test_an_unreadable_judge_reply_fails_the_case(db, user, setup, monkeypatch):
     monkeypatch.setattr(
         execution.judge, "judge", lambda *a, **k: judge_module.Verdict(None, "empty reply")
     )
-    monkeypatch.setattr("apps.providers.services.client_for", lambda user: SimpleNamespace())
+    monkeypatch.setattr("apps.providers.services.build_adapter", lambda *a, **k: FakeAdapter())
     [run] = services.start_runs(user, setup.suite, [{"kind": "agent", "agent": setup.agent.pk}])
     run = run_all(run)
     first = run.results.get(position=0)

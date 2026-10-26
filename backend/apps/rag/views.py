@@ -96,12 +96,12 @@ class EmbeddingViewSet(
             except (ValueError, Connection.DoesNotExist) as exc:
                 raise NotFound("Connection not found") from exc
         try:
-            client = provider_services.embedding_client(request.user, connection)
+            adapter = provider_services.adapter_for(request.user, connection, timeout=30.0)
         except ValueError as exc:
             return Response(
                 {"ok": False, "detail": str(exc), "latency_ms": None, "dimensions": None}
             )
-        return Response(provider_services.test_embedding(client=client, model=model))
+        return Response(provider_services.test_embedding(adapter=adapter, model=model))
 
 
 @api_view(["GET"])

@@ -1,7 +1,5 @@
 """Retrieval against real Postgres + pgvector, with hand-made vectors (no LLM needed)."""
 
-from types import SimpleNamespace
-
 import pytest
 
 from apps.library.models import Document, Folder
@@ -53,15 +51,24 @@ def tags(chunks):
     return [c.tag for c in chunks]
 
 
-def run(user, query, vector, method, top_k=2, **kw):
+class Says:
+    """A stand-in for a ChatTarget: always replies the same thing."""
+
+    def __init__(self, reply="OK"):
+        self.reply = reply
+
+    def complete(self, prompt, *, max_tokens=300):
+        return self.reply
+
+
+def run(user, query, vector, method, top_k=2, llm=None, **kw):
     return retrieval.search(
         user,
         query,
         config=retrieval.RetrievalConfig(method=method, top_k=top_k, **kw),
         index=embedding_of(user),
         embed=lambda texts: [vector for _ in texts],
-        client=None,
-        chat_model="m",
+        llm=llm or Says(),
     )
 
 
@@ -110,8 +117,7 @@ def test_folder_scoping_includes_subfolders(db, user):
         index=embedding_of(user),
         folder_ids=[a.pk],
         embed=lambda t: [OTHER for _ in t],
-        client=None,
-        chat_model="m",
+        llm=Says(),
     )
     assert {c.document for c in found} == {"in-sub.md"}
 
@@ -129,13 +135,11 @@ def test_dimensions_must_match_the_query(db, user, corpus):
 
 
 def test_llm_rerank_reorders(db, user, corpus, monkeypatch):
-    monkeypatch.setattr(retrieval, "complete", lambda *a, **k: "[1, 0]")
-    found = run(user, "error", ERRORS, "dense", top_k=2, rerank="llm")
+    found = run(user, "error", ERRORS, "dense", top_k=2, rerank="llm", llm=Says("[1, 0]"))
     assert tags(found)[:2] == ["errors.md#1", "errors.md#0"]
 
 
 def test_multi_query_searches_every_variant(db, user, corpus, monkeypatch):
-    monkeypatch.setattr(retrieval, "complete", lambda *a, **k: "payment gateway\nE-4012 meaning")
     seen = []
 
     def embed(texts):
@@ -148,14 +152,12 @@ def test_multi_query_searches_every_variant(db, user, corpus, monkeypatch):
         config=retrieval.RetrievalConfig(method="hybrid", top_k=3, query_transform="multi_query"),
         index=embedding_of(user),
         embed=embed,
-        client=SimpleNamespace(),
-        chat_model="m",
+        llm=Says("payment gateway\nE-4012 meaning"),
     )
     assert seen == ["Which error code is E-4012?", "payment gateway", "E-4012 meaning"]
 
 
 def test_hyde_embeds_a_hypothetical_answer(db, user, corpus, monkeypatch):
-    monkeypatch.setattr(retrieval, "complete", lambda *a, **k: "The gateway timed out.")
     seen = []
     retrieval.search(
         user,
@@ -163,7 +165,6 @@ def test_hyde_embeds_a_hypothetical_answer(db, user, corpus, monkeypatch):
         config=retrieval.RetrievalConfig(method="dense", top_k=1, query_transform="hyde"),
         index=embedding_of(user),
         embed=lambda texts: seen.extend(texts) or [PAYMENTS for _ in texts],
-        client=SimpleNamespace(),
-        chat_model="m",
+        llm=Says("The gateway timed out."),
     )
     assert seen == ["The gateway timed out."]

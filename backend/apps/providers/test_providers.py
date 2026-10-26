@@ -1,12 +1,11 @@
 """Acceptance tests for specs/0004-settings.md (LLM provider)."""
 
-from types import SimpleNamespace
-
 import pytest
-from openai import AuthenticationError
 from rest_framework.test import APIClient
 
 from apps.providers import services
+from apps.providers.llm import ProviderError
+from apps.providers.llm.testing import FakeAdapter
 from apps.providers.models import ProviderConfig
 from apps.providers.selectors import get_api_key
 
@@ -61,31 +60,17 @@ def test_provider_config_is_per_user(auth_api, other_user):
     assert bob.get(URL).status_code == 204
 
 
-class FakeClient:
-    def __init__(self, *, fail_chat=None, fail_embed=None):
-        self.fail_chat, self.fail_embed = fail_chat, fail_embed
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._chat))
-        self.embeddings = SimpleNamespace(create=self._embed)
+def use(monkeypatch, adapter=None, seen=None):
+    def build(kind, base_url, api_key, **kwargs):
+        if seen is not None:
+            seen.update(kind=kind, key=api_key)
+        return adapter or FakeAdapter()
 
-    def _chat(self, **kwargs):
-        if self.fail_chat:
-            raise self.fail_chat
-        msg = SimpleNamespace(content="OK")
-        return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
-
-    def _embed(self, **kwargs):
-        if self.fail_embed:
-            raise self.fail_embed
-        return SimpleNamespace(data=[SimpleNamespace(embedding=[0.0] * 768)])
-
-
-def _auth_error(message):
-    response = SimpleNamespace(status_code=401, headers={}, request=None)
-    return AuthenticationError(message, response=response, body={"error": {"message": message}})
+    monkeypatch.setattr(services, "build_adapter", build)
 
 
 def test_at_0004_02_test_connection_reports_success(auth_api, monkeypatch):
-    monkeypatch.setattr(services, "build_client", lambda *a, **k: FakeClient())
+    use(monkeypatch)
     res = auth_api.post("/api/providers/test/", PROVIDER, format="json")
     body = res.json()
     assert body["ok"] is True and body["chat"]["ok"]
@@ -94,8 +79,7 @@ def test_at_0004_02_test_connection_reports_success(auth_api, monkeypatch):
 
 
 def test_at_0004_02_test_connection_shows_the_provider_error(auth_api, monkeypatch):
-    err = _auth_error("Incorrect API key provided")
-    monkeypatch.setattr(services, "build_client", lambda *a, **k: FakeClient(fail_chat=err))
+    use(monkeypatch, FakeAdapter(error=ProviderError("Incorrect API key provided", permanent=True)))
     body = auth_api.post("/api/providers/test/", PROVIDER, format="json").json()
     assert body["ok"] is False
     assert body["chat"]["detail"] == "Incorrect API key provided"
@@ -104,12 +88,7 @@ def test_at_0004_02_test_connection_shows_the_provider_error(auth_api, monkeypat
 def test_at_0004_02_test_connection_falls_back_to_the_saved_key(auth_api, monkeypatch):
     auth_api.put(URL, PROVIDER, format="json")
     seen = {}
-
-    def fake_build(base_url, api_key, **kwargs):
-        seen["key"] = api_key
-        return FakeClient()
-
-    monkeypatch.setattr(services, "build_client", fake_build)
+    use(monkeypatch, seen=seen)
     auth_api.post("/api/providers/test/", {**PROVIDER, "api_key": ""}, format="json")
     assert seen["key"] == PROVIDER["api_key"]
 
@@ -123,8 +102,30 @@ def test_saving_the_provider_never_reindexes(auth_api, pushed_events):
 
 
 def test_test_embedding_reports_the_dimensions():
-    body = services.test_embedding(client=FakeClient(), model="nomic-embed-text")
+    body = services.test_embedding(adapter=FakeAdapter(embed_dims=768), model="nomic-embed-text")
     assert body["ok"] is True and body["dimensions"] == 768
-    failing = FakeClient(fail_embed=_auth_error("Incorrect API key provided"))
-    body = services.test_embedding(client=failing, model="x")
+    failing = FakeAdapter(error=ProviderError("Incorrect API key provided", permanent=True))
+    body = services.test_embedding(adapter=failing, model="x")
     assert (body["ok"], body["detail"]) == (False, "Incorrect API key provided")
+
+
+def test_at_0008_01_test_connection_works_for_every_kind(auth_api, monkeypatch):
+    seen = {}
+    use(monkeypatch, seen=seen)
+    body = auth_api.post(
+        "/api/providers/test/",
+        {"kind": "anthropic", "chat_model": "claude-opus-5-5"},
+        format="json",
+    ).json()
+    assert body["ok"] is True and seen["kind"] == "anthropic"
+
+
+def test_openai_compatible_needs_a_base_url_but_claude_does_not(auth_api):
+    res = auth_api.put(URL, {"kind": "openai", "chat_model": "m"}, format="json")
+    assert res.status_code == 400 and "base_url" in res.json()
+    res = auth_api.put(
+        URL,
+        {"kind": "anthropic", "api_key": "sk-ant-x", "chat_model": "claude-opus-5-5"},
+        format="json",
+    )
+    assert res.status_code == 200 and res.json()["kind"] == "anthropic"

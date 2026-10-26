@@ -21,7 +21,7 @@ and keep the **System Design page** and **ARCHITECTURE.md** accurate — they ar
 | Background work, agents, cron | **Hatchet** (tasks in `backend/apps/jobs/tasks/`) | Celery, RQ, django.tasks, threads |
 | Database + vectors | Postgres + pgvector | separate vector DBs |
 | Redis | **Only** the Channels layer | queues, caching, sessions |
-| LLM | OpenAI-compatible client: default provider + extra connections such as Ollama, each usable for chat and for embeddings | provider-specific SDKs |
+| LLM | `providers` adapters only (`apps/providers/llm/`): OpenAI-compatible, Anthropic (`anthropic` SDK), Google (`google-genai` SDK) — one neutral interface | importing a provider SDK anywhere else (enforced by `test_architecture.py`) |
 
 Full map of what is used for what: [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -66,7 +66,7 @@ Backend: always `uv` (`uv add <pkg>`, `uv run python manage.py …`, `uv run pyt
 | `accounts` | platform | users, JWT endpoints | core |
 | `realtime` | platform | websocket gateway, `send_to_user`, ws handler registry | core |
 | `jobs` | platform | Hatchet client, worker, task discovery, demo tasks | core, realtime |
-| `providers` | domain | LLM provider config, connections, OpenAI-compatible client factory, model catalogue (0004, 0010) | platform |
+| `providers` | domain | LLM provider config + connections (with a kind), the adapter layer `llm/`, model catalogue (0004, 0008, 0010) | platform |
 | `library` | domain | folders, documents, uploads; emits document events (0003, 0010) | platform |
 | `rag` | domain | embeddings (`EmbeddingIndex`), parse/chunk/embed per embedding, `Chunk` + vectors, retrieval, rerank, generation (0003–0005, 0010) | providers, library |
 | `agents` | domain | agent config (system message + RAG options), agent loop (`runner.py`), `agent-run` task (0005, 0010) | providers, library, rag |
@@ -105,6 +105,12 @@ Rules:
   one index at a time, embedding the query with that index's model. The chat picks agent +
   embedding (or None) + model; agents own no folders, connection or model. Agent runs must keep
   working for models without tool calling (pipeline fallback).
+- **Provider-agnostic code**: callers use `providers.services.adapter_for()` / `chat_target()`
+  and the neutral `Adapter` interface (`stream_chat` → Thinking/Text/ToolCall/Done, `complete`,
+  `embed`, `list_models`). Provider specifics (Claude's signed thinking, effort, refusals,
+  Gemini's thought signatures) stay inside the adapter; the `agent.*` websocket events never
+  change shape per provider, and no shared function is duplicated per provider. Tests use
+  `apps.providers.llm.testing.FakeAdapter`.
 - **Benchmarks never let a missing score pass**: n/a only for metrics that don't apply (retrieval
   on a bare model); an unreadable judge verdict fails the case (retryable).
 - **Sync Hatchet tasks** that use the ORM call `close_old_connections()` at start and end.

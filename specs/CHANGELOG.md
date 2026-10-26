@@ -45,6 +45,11 @@
   Public datasets dropped from 0007 (your call).
 
 ## 2026-10-25
+- **0008 Providers: Anthropic and Google — Done.** Provider adapter layer in
+  `apps/providers/llm` (OpenAI-compatible, Anthropic, Google) behind one neutral interface;
+  provider kinds on the chat provider and connections; Claude adaptive thinking, effort,
+  refusals, prompt caching; Gemini thought summaries, function calling and embeddings. Agents
+  gained "Reasoning effort". The UI's streaming events are unchanged.
 - **0007 reviewed and rewritten** (still Draft): repeats default to 1; tokens only — no dollar
   costs or price table; unreported usage is estimated and labelled; direct *and* indirect
   (planted-document) prompt injection with canaries; generated evidence must appear verbatim;
@@ -52,6 +57,12 @@
 - **Chat composer redesigned** after Claude's text bar: one rounded card with an auto-growing
   text area, the agent picker and send/stop inside it, and a centred greeting + composer for
   empty chats. The message box now has the accessible name "Message".
+- **Drafted 0008 Providers: Anthropic and Google** (your request): native adapters (official
+  `anthropic` and `google-genai` SDKs) behind one interface in `providers`, a separate
+  Embeddings setting (Anthropic has no embeddings API). Revised after review: append-only
+  history that resends Claude's raw content (signed thinking) unchanged, explicit effort,
+  refusal fallbacks per model incl. mid-stream refusals, `embeddings.changed` event and the
+  CLAUDE.md conventions it changes, fake servers only in acceptance; 12 scenarios.
 - **Drafted 0009 Delete a chat** (your request): delete from the chat list behind a confirmation
   dialog, messages cascade, owner-only (another user's id → 404), deleting the open chat returns
   to an empty chat, and a reply still streaming is cancelled first (new
@@ -72,6 +83,9 @@
   Today's data migrates into one embedding, "My documents", with no re-index. Proposes
   CLAUDE.md changes (one model per *index*, `provider.embedding_changed` removed, new
   `document.moved` event, `chat → rag` dependency, `embedding.status` ws event). 18 scenarios.
+- **0008 revised** to match: its single Embeddings setting, migration and `embeddings.changed`
+  event are gone (0010 owns embeddings); it now depends on 0010 and adds Google as an
+  embeddings endpoint; chats pick agent + embedding + model; 10 scenarios.
 - **0010 Embeddings — Done.** Named embeddings (folders / files / all documents + endpoint +
   model + chunking) on a new Embeddings page, each indexed on its own with live
   `embedding.status`; Chat picks agent + embedding + model and shows them; answers record what

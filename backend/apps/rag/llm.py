@@ -3,18 +3,14 @@ map/refine steps, relevance grading). The agent's own answer streams elsewhere."
 
 import json
 import re
+from typing import Protocol
 
-from openai import OpenAI
 
+class Completer(Protocol):
+    """Anything with complete(prompt) — in practice a providers ChatTarget (adapter + model), so
+    these steps run on whichever provider the chat or benchmark picked."""
 
-def complete(client: OpenAI, model: str, prompt: str, *, max_tokens: int = 300) -> str:
-    res = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=max_tokens,
-        temperature=0,
-    )
-    return (res.choices[0].message.content or "").strip()
+    def complete(self, prompt: str, *, max_tokens: int = 300) -> str: ...
 
 
 def parse_int_list(text: str) -> list[int] | None:

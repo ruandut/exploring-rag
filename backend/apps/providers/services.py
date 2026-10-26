@@ -1,12 +1,16 @@
-"""Write-side logic for providers, plus the LLM client factory every other app uses."""
+"""Write-side logic for providers, plus the adapter factory every other app uses.
+
+Other apps never touch a provider SDK: they ask for an adapter (`adapter_for`) or a chat
+target (`chat_target`) and use the neutral interface in `llm/base.py`.
+"""
 
 import time
 from dataclasses import asdict, dataclass
 
 from django.db import transaction
-from openai import OpenAI, OpenAIError
 
 from .crypto import encrypt
+from .llm import Adapter, ProviderError, make_adapter
 from .models import Connection, ProviderConfig
 from .selectors import get_api_key, get_provider_config
 
@@ -16,62 +20,64 @@ from .selectors import get_api_key, get_provider_config
 LLM_TIMEOUT_SECONDS = 300.0
 
 
-def build_client(base_url: str, api_key: str, *, timeout: float = LLM_TIMEOUT_SECONDS) -> OpenAI:
-    # Local servers like Ollama ignore the key, but the SDK requires a non-empty one.
-    return OpenAI(
-        base_url=base_url, api_key=api_key or "not-needed", timeout=timeout, max_retries=0
-    )
+def build_adapter(
+    kind: str, base_url: str, api_key: str, *, timeout: float = LLM_TIMEOUT_SECONDS
+) -> Adapter:
+    return make_adapter(kind, base_url, api_key, timeout=timeout)
 
 
-def client_for(user) -> OpenAI:
-    """The OpenAI-compatible client for a user's saved provider. Used by rag / agents / evals."""
+def adapter_for(
+    user, connection: Connection | None, *, timeout: float = LLM_TIMEOUT_SECONDS
+) -> Adapter:
+    """The adapter for a connection, or for the user's default provider when it's None."""
+    if connection is not None:
+        return build_adapter(
+            connection.kind, connection.base_url, get_api_key(connection), timeout=timeout
+        )
     config = get_provider_config(user)
     if config is None:
         raise ValueError("No LLM provider configured")
-    return build_client(config.base_url, get_api_key(config))
-
-
-def embedding_client(user, connection: Connection | None) -> OpenAI:
-    """The client an embedding embeds with: its connection, or the default provider."""
-    if connection is not None:
-        return build_client(connection.base_url, get_api_key(connection))
-    return client_for(user)
+    return build_adapter(config.kind, config.base_url, get_api_key(config), timeout=timeout)
 
 
 @dataclass
 class ChatTarget:
-    """Where an agent sends chat requests: a client plus the model name to ask for."""
+    """Where chat requests go: an adapter plus the model name to ask for."""
 
-    client: OpenAI
+    adapter: Adapter
     model: str
     label: str  # shown in the UI, e.g. "Ollama (local) · gemma4:e4b"
 
+    def complete(self, prompt: str, *, max_tokens: int = 300) -> str:
+        return self.adapter.complete(self.model, prompt, max_tokens=max_tokens)
+
 
 def chat_target(user, *, connection: Connection | None, model: str) -> ChatTarget:
-    """An agent's connection + model, falling back to the default provider and its chat model."""
+    """A connection + model, falling back to the default provider and its chat model."""
     if connection is not None:
         if not model:
             raise ValueError(f"Pick a model for the connection “{connection.name}”")
-        key = get_api_key(connection)
-        return ChatTarget(
-            build_client(connection.base_url, key), model, f"{connection.name} · {model}"
-        )
+        return ChatTarget(adapter_for(user, connection), model, f"{connection.name} · {model}")
     config = get_provider_config(user)
     if config is None:
         raise ValueError("No LLM provider configured — add one in Settings.")
     model = model or config.chat_model
-    return ChatTarget(client_for(user), model, f"Default provider · {model}")
+    return ChatTarget(adapter_for(user, None), model, f"Default provider · {model}")
+
+
+def _set_key(obj, data: dict) -> None:
+    if "api_key" in data:
+        key = data["api_key"]
+        obj.api_key_encrypted = encrypt(key) if key else ""
+        obj.api_key_last4 = key[-4:] if key else ""
 
 
 def save_connection(user, *, data: dict, instance: Connection | None = None) -> Connection:
     conn = instance or Connection(owner=user)
-    for field in ("name", "base_url"):
+    for field in ("name", "kind", "base_url"):
         if field in data:
             setattr(conn, field, data[field])
-    if "api_key" in data:
-        key = data["api_key"]
-        conn.api_key_encrypted = encrypt(key) if key else ""
-        conn.api_key_last4 = key[-4:] if key else ""
+    _set_key(conn, data)
     conn.save()
     return conn
 
@@ -85,13 +91,10 @@ def save_provider_config(user, *, data: dict) -> ProviderConfig:
     model is their own, so nothing is re-indexed here.
     """
     config = get_provider_config(user) or ProviderConfig(owner=user)
-    for field in ("base_url", "chat_model"):
+    for field in ("kind", "base_url", "chat_model"):
         if field in data:
             setattr(config, field, data[field])
-    if "api_key" in data:
-        key = data["api_key"]
-        config.api_key_encrypted = encrypt(key) if key else ""
-        config.api_key_last4 = key[-4:] if key else ""
+    _set_key(config, data)
     config.save()
     return config
 
@@ -110,41 +113,29 @@ class ConnectionReport:
 
 
 def error_message(exc: Exception) -> str:
-    # Surface the provider's own message (e.g. "Incorrect API key provided") when there is one.
-    body = getattr(exc, "body", None)
-    if isinstance(body, dict):
-        err = body.get("error", body)
-        if isinstance(err, dict) and err.get("message"):
-            return str(err["message"])
     return str(exc) or exc.__class__.__name__
 
 
-def test_connection(*, base_url: str, api_key: str, chat_model: str) -> dict:
-    """Make one tiny chat completion against the endpoint. (Embeddings have their own Test.)"""
-    client = build_client(base_url, api_key, timeout=20.0)
-
+def test_connection(*, kind: str, base_url: str, api_key: str, chat_model: str) -> dict:
+    """One tiny completion against the endpoint, whatever its kind. (Embeddings have their own
+    Test.)"""
+    adapter = build_adapter(kind, base_url, api_key, timeout=60.0)
     start = time.monotonic()
     try:
-        reply = client.chat.completions.create(
-            model=chat_model,
-            messages=[{"role": "user", "content": "Reply with the single word: OK"}],
-            max_tokens=5,
-        )
-        text = (reply.choices[0].message.content or "").strip()
+        text = adapter.complete(chat_model, "Reply with the single word: OK", max_tokens=5)
         chat = Check(True, f"Replied “{text[:40]}”", int((time.monotonic() - start) * 1000))
-    except OpenAIError as exc:
+    except ProviderError as exc:
         chat = Check(False, error_message(exc))
-
     return asdict(ConnectionReport(chat.ok, chat))
 
 
-def test_embedding(*, client: OpenAI, model: str) -> dict:
+def test_embedding(*, adapter: Adapter, model: str) -> dict:
     """One embedding call: does the model answer, and how long are its vectors?"""
     start = time.monotonic()
     try:
-        emb = client.embeddings.create(model=model, input="ping")
-    except OpenAIError as exc:
+        [vector] = adapter.embed(model, ["ping"])
+    except ProviderError as exc:
         return {"ok": False, "detail": error_message(exc), "latency_ms": None, "dimensions": None}
-    dims = len(emb.data[0].embedding)
+    dims = len(vector)
     latency = int((time.monotonic() - start) * 1000)
     return {"ok": True, "detail": f"{dims} dimensions", "latency_ms": latency, "dimensions": dims}

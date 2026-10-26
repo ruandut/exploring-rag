@@ -9,30 +9,16 @@ three embeddings of one PDF parse it once and chunk + embed it three times.
 """
 
 from django.db import transaction
-from openai import (
-    AuthenticationError,
-    BadRequestError,
-    NotFoundError,
-    PermissionDeniedError,
-    UnprocessableEntityError,
-)
 
 from apps.library import selectors as library_selectors
 from apps.providers import services as provider_services
+from apps.providers.llm import ProviderError
 
 from . import selectors, services
 from .chunking import chunk
 from .embedding import make_embedder
 from .models import Chunk, EmbeddingIndex, IndexedDocument, ParsedText
 from .parsing import ParseError, parse
-
-PERMANENT_PROVIDER_ERRORS = (
-    AuthenticationError,
-    PermissionDeniedError,
-    BadRequestError,
-    NotFoundError,
-    UnprocessableEntityError,
-)
 
 
 class IndexingFailed(Exception):
@@ -62,12 +48,12 @@ def index_document(index_id: int, document_id: int, version: int) -> int:
     services.set_entry_status(index_id, document_id, IndexedDocument.Status.INDEXING)
 
     try:
-        client = provider_services.embedding_client(index.owner, index.connection)
+        adapter = provider_services.adapter_for(index.owner, index.connection)
     except ValueError as exc:
         raise IndexingFailed(f"{exc} — add one in Settings.") from exc
     text = parsed_text(doc)
 
-    embed = make_embedder(client, index.model)
+    embed = make_embedder(adapter, index.model)
     try:
         drafts = chunk(
             text,
@@ -79,8 +65,10 @@ def index_document(index_id: int, document_id: int, version: int) -> int:
         # The heading path is embedded with the text so "Install" under "Setup" is findable
         # by either word; the stored text stays clean.
         vectors = embed([f"{d.heading}\n\n{d.text}" if d.heading else d.text for d in drafts])
-    except PERMANENT_PROVIDER_ERRORS as exc:
-        raise IndexingFailed(provider_services.error_message(exc)) from exc
+    except ProviderError as exc:
+        if not exc.permanent:
+            raise  # network blip, rate limit, 5xx: let Hatchet retry
+        raise IndexingFailed(str(exc)) from exc
 
     dims = len(vectors[0]) if vectors else index.dimensions or 0
     if index.dimensions and dims and dims != index.dimensions:

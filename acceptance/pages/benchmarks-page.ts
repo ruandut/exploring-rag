@@ -73,9 +73,18 @@ export class BenchmarksPage {
     return Buffer.concat(chunks).toString("utf8");
   }
 
-  /** Pick a target ("Docs helper", or "Bare model · Default provider" + model) and run. */
-  async run(target: string, model?: string, second?: { target: string; model?: string }): Promise<number> {
+  /** Pick a target ("Docs helper", or "Bare model · Default provider" + model) and run. An
+   *  agent target may also name the embedding it searches. */
+  async run(
+    target: string,
+    model?: string,
+    second?: { target: string; model?: string },
+    embedding?: string,
+  ): Promise<number> {
     await this.page.getByLabel("Target", { exact: true }).selectOption({ label: target });
+    if (embedding !== undefined) {
+      await this.page.getByLabel("Target embedding").selectOption({ label: `Embedding: ${embedding}` });
+    }
     if (model !== undefined) await new ModelPicker(this.page, "Target model").pick(model);
     if (second) {
       await this.page.getByRole("checkbox", { name: "Compare with a second target" }).check();

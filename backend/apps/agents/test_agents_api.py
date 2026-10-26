@@ -52,13 +52,14 @@ def test_connections_never_return_keys_and_list_models(auth_api, monkeypatch):
     assert res.json()["api_key_last4"] == "9876"
     seen = {}
 
-    def fake_list(base_url, api_key):
+    def fake_build(kind, base_url, api_key, **kwargs):
         from apps.providers.catalog import ModelInfo
+        from apps.providers.llm.testing import FakeAdapter
 
         seen["key"] = api_key
-        return "ollama", [ModelInfo("gemma4:e4b", "chat", "endpoint", None, True)]
+        return FakeAdapter(models=[ModelInfo("gemma4:e4b", "chat", "endpoint", None, True)])
 
-    monkeypatch.setattr("apps.providers.catalog.list_models", fake_list)
+    monkeypatch.setattr("apps.providers.services.build_adapter", fake_build)
     models = auth_api.get(f"/api/providers/connections/{res.json()['id']}/models/").json()
     assert [m["id"] for m in models["models"]] == ["gemma4:e4b"]
     assert seen["key"] == "sk-secret-9876"

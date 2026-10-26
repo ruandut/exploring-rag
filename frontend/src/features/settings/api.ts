@@ -2,9 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api, ApiError } from "@/lib/api";
 
+import type { ProviderKind } from "./kinds";
+
 // --- LLM provider (apps.providers) -------------------------------------------------------
 
 export type ProviderConfig = {
+  kind: ProviderKind;
   base_url: string;
   api_key_last4: string;
   has_api_key: boolean;
@@ -13,7 +16,8 @@ export type ProviderConfig = {
 };
 
 export type SaveProviderInput = {
-  base_url: string;
+  kind: ProviderKind;
+  base_url: string; // blank = the SDK's default endpoint (Anthropic, Google)
   api_key?: string; // omitted = keep the stored key
   chat_model: string;
 };

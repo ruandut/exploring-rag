@@ -33,6 +33,12 @@ class Agent(TimeStampedModel):
     )
     name = models.CharField(max_length=100)
     system_message = models.TextField(blank=True)
+    # Reasoning depth for providers that support it (Claude); others ignore it. Blank = high.
+    effort = models.CharField(
+        max_length=8,
+        blank=True,
+        choices=[(e, e) for e in ("low", "medium", "high", "xhigh", "max")],
+    )
     rag_config = models.JSONField(default=default_rag_config)
 
     class Meta:

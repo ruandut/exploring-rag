@@ -1,13 +1,12 @@
 """The indexing pipeline with a fake OpenAI client (no network, no Hatchet)."""
 
-from types import SimpleNamespace
-
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
-from openai import AuthenticationError
 
 from apps.library import services as library_services
 from apps.library.models import Document, DocumentStatus
+from apps.providers.llm import ProviderError
+from apps.providers.llm.testing import FakeAdapter
 from apps.providers.models import ProviderConfig
 from apps.rag import indexing, services
 from apps.rag.models import Chunk, EmbeddingIndex, IndexedDocument, ParsedText
@@ -19,25 +18,12 @@ def media(settings, tmp_path, monkeypatch):
     monkeypatch.setattr("apps.jobs.events.push_event", lambda k, p: None)
 
 
-class FakeEmbeddings:
-    def __init__(self, dims=8, error=None):
-        self.dims, self.error, self.calls = dims, error, []
-
-    def create(self, model, input):
-        if self.error:
-            raise self.error
-        self.calls.append(len(input))
-        data = [SimpleNamespace(index=i, embedding=[0.1] * self.dims) for i in range(len(input))]
-        return SimpleNamespace(data=list(reversed(data)))  # out of order on purpose
-
-
 @pytest.fixture
 def fake_client(monkeypatch):
-    embeddings = FakeEmbeddings()
-    monkeypatch.setattr(
-        "apps.providers.services.client_for", lambda user: SimpleNamespace(embeddings=embeddings)
-    )
-    return embeddings
+    """The embedding provider, whatever its kind: a fake adapter (8-dimensional vectors)."""
+    adapter = FakeAdapter()
+    monkeypatch.setattr("apps.providers.services.build_adapter", lambda *a, **k: adapter)
+    return adapter
 
 
 @pytest.fixture
@@ -99,7 +85,7 @@ def test_embeddings_are_batched(db, user, provider, emb, fake_client, monkeypatc
     emb.refresh_from_db()
     doc = make_doc(user, "big.txt", (" ".join(f"w{i}" for i in range(300))).encode())
     assert index(emb, doc) == 5
-    assert fake_client.calls == [2, 2, 1]
+    assert fake_client.embedded == [2, 2, 1]
     assert list(Chunk.objects.filter(document=doc).values_list("index", flat=True)) == [
         0,
         1,
@@ -146,17 +132,14 @@ def test_no_provider_is_a_user_error(db, user, emb):
 
 
 def test_auth_errors_are_not_retried(db, user, provider, emb, fake_client):
-    response = SimpleNamespace(status_code=401, headers={}, request=None)
-    fake_client.error = AuthenticationError(
-        "nope", response=response, body={"error": {"message": "Incorrect API key provided"}}
-    )
+    fake_client.error = ProviderError("Incorrect API key provided", permanent=True)
     doc = make_doc(user)
     with pytest.raises(indexing.IndexingFailed, match="Incorrect API key provided"):
         index(emb, doc)
 
 
 def test_dimension_mismatch_is_reported(db, user, provider, emb, fake_client):
-    fake_client.dims = 4
+    fake_client.embed_dims = 4
     doc = make_doc(user)
     with pytest.raises(indexing.IndexingFailed, match="returned 4 dimensions"):
         index(emb, doc)
@@ -206,3 +189,9 @@ def test_chunks_endpoint_is_owner_only(db, user, other_user, provider, emb, fake
     bob = APIClient()
     bob.force_authenticate(other_user)
     assert bob.get(f"/api/rag/documents/{doc.pk}/chunks/").status_code == 404
+
+
+def test_transient_provider_errors_are_retried(db, user, provider, emb, fake_client):
+    fake_client.error = ProviderError("Rate limited", permanent=False)
+    with pytest.raises(ProviderError):  # not IndexingFailed: Hatchet retries it
+        index(emb, make_doc(user))

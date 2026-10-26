@@ -4,7 +4,7 @@
 // MUST update this file in the same change. Bump LAST_UPDATED when you do.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const LAST_UPDATED = "2026-10-25 · spec 0010 embeddings";
+export const LAST_UPDATED = "2026-10-25 · spec 0008 Anthropic and Google";
 
 /** live = works end-to-end today · demo = wired up with fake data · planned = spec drafted */
 export type Status = "live" | "demo" | "planned";
@@ -70,7 +70,7 @@ export const COMPONENTS: Component[] = [
   {
     name: "LLM provider",
     tech: "Any OpenAI-compatible API",
-    role: "Embeddings and chat with tool calling, through the default provider or extra connections such as a local Ollama. Each embedding names its own endpoint + model (one model per index, so its vectors are comparable); each chat picks the model that answers. Keys are Fernet-encrypted at rest.",
+    role: "Embeddings and chat with tool calling, through the default provider or extra connections such as a local Ollama, Claude (Anthropic) or Gemini (Google) — each spoken in its own API by an adapter, behind one neutral interface. Each embedding names its own endpoint + model (one model per index, so its vectors are comparable); each chat picks the model that answers. Keys are Fernet-encrypted at rest.",
     runs: "External or local — Settings → LLM provider / Connections; apps.providers.chat_target()",
     status: "live",
   },
@@ -125,10 +125,10 @@ export const DJANGO_APPS: DjangoApp[] = [
   {
     name: "providers",
     layer: "domain",
-    owns: "Default provider (Fernet-encrypted key), extra connections like Ollama, client factory, the model catalogue (which models embed / chat / call tools, and their dimensions)",
+    owns: "Default provider + connections, each with a kind (OpenAI-compatible, Anthropic, Google); the adapter layer (the only code that imports a provider SDK); the model catalogue",
     dependsOn: "platform",
     status: "live",
-    spec: "0004, 0010",
+    spec: "0004, 0008, 0010",
   },
   {
     name: "library",
@@ -438,6 +438,8 @@ export const GOTCHAS = [
   "Hatchet runs sync tasks in worker threads: call close_old_connections() around ORM work so threads don't hold dead DB connections.",
   "Chunk sizes use approximate tokens (words + punctuation). Good enough for sizing; never for billing.",
   "Every vector in one embedding must come from one model, so retrieval searches one embedding at a time and embeds the question with that embedding's model — the answering model can be anything (e.g. local Gemma). Want to compare models or chunk sizes? Make two embeddings of the same documents and compare them in Benchmarks.",
+  "Every provider is used through one small interface (providers/llm): stream_chat yields Thinking / Text / ToolCall / Done, plus complete, embed and list_models. The agent loop, retrieval, judges and indexing are written once against it — adding a provider means writing an adapter, not touching callers. Claude's signed thinking blocks and Gemini's thought signatures ride along as the adapter's opaque 'raw' turn and are sent back unchanged.",
+  "Claude may decline a request (stop_reason: refusal), even after it has started answering. The adapter reports it as Done('refusal'); the loop turns that into the same agent.error any failure uses, and the chat drops the half-answer.",
   "OpenAI's /models lists ids only, so the model picker asks Ollama's /api/show, then a built-in table, then the name (\"guessed from the name\") — and lists anything it can't classify as Unknown, because a wrong guess must never hide a model.",
   'Not every model can call tools. When a provider says so (Ollama: "does not support tools"), the agent falls back to classic RAG: search once with the question, put the passages in the prompt, answer.',
   "Reasoning isn't part of the OpenAI schema; providers add it as an extra field (reasoning_content or reasoning). The agent reads both, which is how Gemma's thinking shows up live.",

@@ -62,6 +62,7 @@ Run one spec, even a draft: `cd acceptance && vp run test -- ../specs/0005-agent
 | [0005](0005-agents-and-chat.feature.md) | Agents + RAG chat (incl. local models) | Done |
 | [0006](0006-benchmarks.feature.md) | Benchmarks: suites, metrics, boundaries, runs | Done |
 | [0007](0007-benchmarks-extras.feature.md) | Benchmarks II: generated test sets, prompt injection, format rules, repeats, tokens | Draft |
+| [0008](0008-anthropic-and-google.feature.md) | Providers: Anthropic and Google | Done |
 | [0009](0009-delete-chat.feature.md) | Delete a chat | Done |
 | [0010](0010-embeddings.feature.md) | Embeddings: named indexes, model picker, chat with agent + embedding + model | Done |
 

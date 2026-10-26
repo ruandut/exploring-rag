@@ -70,3 +70,28 @@ def test_apps_only_import_allowed_dependencies():
             for dep in _imported_apps(path) - allowed - {app}:
                 violations.append(f"{path.relative_to(APPS_DIR)} imports apps.{dep}")
     assert not violations, "Disallowed cross-app imports:\n" + "\n".join(violations)
+
+
+# Provider SDKs (spec 0008): only the adapters in apps/providers/llm/ may import them, so the
+# rest of the code stays provider-agnostic.
+PROVIDER_SDKS = ("openai", "anthropic", "google.genai", "google")
+
+
+def test_provider_sdks_are_imported_only_by_the_adapters():
+    allowed = APPS_DIR / "providers" / "llm"
+    offenders = []
+    for path in APPS_DIR.rglob("*.py"):
+        if allowed in path.parents or path.name.startswith("test_"):
+            continue
+        for node in ast.walk(ast.parse(path.read_text(), filename=str(path))):
+            names = (
+                [node.module or ""]
+                if isinstance(node, ast.ImportFrom) and node.level == 0
+                else [a.name for a in node.names]
+                if isinstance(node, ast.Import)
+                else []
+            )
+            for name in names:
+                if name.split(".")[0] in {s.split(".")[0] for s in PROVIDER_SDKS}:
+                    offenders.append(f"{path.relative_to(APPS_DIR)} imports {name}")
+    assert not offenders, "Use apps.providers.llm adapters instead:\n" + "\n".join(offenders)

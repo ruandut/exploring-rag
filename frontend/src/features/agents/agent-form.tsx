@@ -43,6 +43,7 @@ export function AgentForm({
   const [name, setName] = useState(agent?.name ?? "");
   const [systemMessage, setSystemMessage] = useState(agent?.system_message ?? "");
   const [rag, setRag] = useState<RagConfig>(agent?.rag_config ?? DEFAULT_RAG);
+  const [effort, setEffort] = useState<Agent["effort"]>(agent?.effort ?? "");
   const errors = errorsOf(error);
 
   const setRagField = <K extends keyof RagConfig>(key: K, value: RagConfig[K]) =>
@@ -56,6 +57,7 @@ export function AgentForm({
         onSubmit({
           name,
           system_message: systemMessage,
+          effort,
           rag_config: rag,
         });
       }}
@@ -78,6 +80,14 @@ export function AgentForm({
           placeholder="You are a helpful assistant for our team handbook…"
         />
       </Field>
+
+      <OptionSelect
+        id="effort"
+        label="Reasoning effort"
+        options={EFFORTS}
+        value={effort || "high"}
+        onChange={(v) => setEffort(v === "high" ? "" : v)}
+      />
 
       <p className="text-xs text-muted-foreground">
         What the agent searches (an embedding) and which model answers are picked in Chat, next to
@@ -146,6 +156,17 @@ export function AgentForm({
     </form>
   );
 }
+
+type Effort = Exclude<Agent["effort"], "">;
+
+// Used by models that support it (e.g. Claude); others ignore it.
+const EFFORTS: { value: Effort; label: string; hint: string }[] = [
+  { value: "low", label: "Low", hint: "Quick answers, little thinking." },
+  { value: "medium", label: "Medium", hint: "Some thinking." },
+  { value: "high", label: "High (default)", hint: "Thinks before answering — a good default." },
+  { value: "xhigh", label: "Extra high", hint: "More thinking for harder questions." },
+  { value: "max", label: "Max", hint: "As much thinking as needed. Slowest." },
+];
 
 function OptionSelect<T extends string>({
   id,

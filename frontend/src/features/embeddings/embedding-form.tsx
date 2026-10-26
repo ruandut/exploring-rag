@@ -13,7 +13,7 @@ import {
 import { useConnections } from "@/features/agents/api";
 import { ModelCombobox } from "@/features/models/model-picker";
 import { useDocuments, useFolders } from "@/features/library/api";
-import { fieldErrors, STRATEGIES, type Strategy } from "@/features/settings/api";
+import { fieldErrors, STRATEGIES, type Strategy, useProviderConfig } from "@/features/settings/api";
 import { Field } from "@/features/settings/provider-form";
 import { cn } from "@/lib/utils";
 
@@ -45,6 +45,11 @@ export function EmbeddingForm({
   const errors = fieldErrors(error);
 
   const connections = useConnections();
+  const provider = useProviderConfig();
+  // Anthropic can't embed (spec 0008): its endpoints are never offered here.
+  const embeddable = (connections.data ?? []).filter((c) => c.kind !== "anthropic");
+  const anthropicHidden =
+    provider.data?.kind === "anthropic" || embeddable.length < (connections.data?.length ?? 0);
   const allFolders = useFolders();
   const allDocs = useDocuments("all");
   const test = useTestEmbedding();
@@ -157,7 +162,15 @@ export function EmbeddingForm({
           Every vector in this embedding comes from this one model — vectors from different models
           can&apos;t be compared. Questions are embedded with it too.
         </p>
-        <Field id="embedding-connection" label="Connection">
+        <Field
+          id="embedding-connection"
+          label="Connection"
+          hint={
+            anthropicHidden
+              ? "Anthropic has no embeddings API, so Claude endpoints aren't listed."
+              : undefined
+          }
+        >
           <Select
             value={connection === null ? "default" : String(connection)}
             onValueChange={(v) => setConnection(v === "default" ? null : Number(v))}
@@ -166,8 +179,10 @@ export function EmbeddingForm({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="default">Default provider (Settings)</SelectItem>
-              {connections.data?.map((c) => (
+              {provider.data?.kind !== "anthropic" && (
+                <SelectItem value="default">Default provider (Settings)</SelectItem>
+              )}
+              {embeddable.map((c) => (
                 <SelectItem key={c.id} value={String(c.id)}>
                   {c.name}
                 </SelectItem>

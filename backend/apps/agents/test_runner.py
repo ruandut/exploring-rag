@@ -1,46 +1,17 @@
-"""The agent loop with a scripted fake model (no network, no Hatchet)."""
+"""The agent loop with a scripted fake adapter (no network, no Hatchet, no provider SDK).
 
-from types import SimpleNamespace
+The loop is provider-agnostic: these tests feed it neutral events. How each provider's stream
+becomes those events is tested next to the adapters (apps/providers/llm/test_adapters.py)."""
 
 import pytest
-from openai import BadRequestError
 
 from apps.agents import runner
 from apps.agents.models import Agent
+from apps.providers.llm import ProviderError, ToolsUnsupported
+from apps.providers.llm.testing import Done, FakeAdapter, Text, Thinking, ToolCall
 from apps.providers.models import Connection, ProviderConfig
 from apps.rag.models import EmbeddingIndex
 from apps.rag.retrieval import Retrieved
-
-
-def delta(content=None, tool_calls=None, **extra):
-    d = SimpleNamespace(content=content, tool_calls=tool_calls, model_extra=extra)
-    return SimpleNamespace(choices=[SimpleNamespace(delta=d)])
-
-
-def tool_call(query):
-    fn = SimpleNamespace(name="search_documents", arguments=f'{{"query": "{query}"}}')
-    return [SimpleNamespace(index=0, id="call_1", function=fn)]
-
-
-class Stream(list):
-    def close(self):
-        pass
-
-
-class ScriptedModel:
-    """Returns one scripted stream per chat.completions.create call."""
-
-    def __init__(self, *scripts):
-        self.scripts = list(scripts)
-        self.calls = []
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
-
-    def create(self, **kwargs):
-        self.calls.append(kwargs)
-        script = self.scripts.pop(0)
-        if isinstance(script, Exception):
-            raise script
-        return Stream(script)
 
 
 @pytest.fixture
@@ -60,21 +31,30 @@ def chunks(monkeypatch):
         Retrieved(1, 1, "handbook.md", 0, "", "The refund window is 30 days.", "", 0.9),
     ]
     monkeypatch.setattr(runner.retrieval, "search", lambda *a, **k: found)
-    monkeypatch.setattr(runner, "make_embedder", lambda client, model: lambda t: [[0.0]])
+    monkeypatch.setattr(runner, "make_embedder", lambda adapter, model: lambda t: [[0.0]])
     return found
 
 
-def use_model(monkeypatch, model):
-    monkeypatch.setattr("apps.providers.services.build_client", lambda *a, **k: model)
-    monkeypatch.setattr("apps.providers.services.client_for", lambda user: model)
+def use(monkeypatch, adapter):
+    monkeypatch.setattr("apps.providers.services.build_adapter", lambda *a, **k: adapter)
+    return adapter
+
+
+def search(query, id="call_1"):
+    return [
+        ToolCall(id, "search_documents", {"query": query}),
+        Done("tool_calls", {"kind": "fake", "n": 1}),
+    ]
 
 
 def test_agent_searches_then_answers_with_citations(db, user, agent, emb, chunks, monkeypatch):
-    model = ScriptedModel(
-        [delta(reasoning="Let me search. "), delta(tool_calls=tool_call("refund window"))],
-        [delta("The window is 30 days "), delta("[handbook.md#0].")],
+    model = use(
+        monkeypatch,
+        FakeAdapter(
+            [Thinking("Let me search. "), *search("refund window")],
+            [Text("The window is 30 days "), Text("[handbook.md#0]."), Done("end")],
+        ),
     )
-    use_model(monkeypatch, model)
     events = []
     result = runner.run(
         user=user,
@@ -83,8 +63,7 @@ def test_agent_searches_then_answers_with_citations(db, user, agent, emb, chunks
         emit=events.append,
         embedding=emb,
     )
-    kinds = [e["type"] for e in events]
-    assert kinds == [
+    assert [e["type"] for e in events] == [
         "agent.thinking",
         "agent.tool_call",
         "agent.retrieval",
@@ -94,42 +73,76 @@ def test_agent_searches_then_answers_with_citations(db, user, agent, emb, chunks
     assert result.answer == "The window is 30 days [handbook.md#0]."
     assert result.retrieved[0]["document"] == "handbook.md"
     assert result.mode == "agentic"
-    # The second call carries the tool result, tagged so the model can cite it.
-    tool_msg = model.calls[1]["messages"][-1]
-    assert tool_msg["role"] == "tool" and "[handbook.md#0]" in tool_msg["content"]
-    assert "Be brief." in model.calls[0]["messages"][0]["content"]
+    # Round two carries round one unchanged — including the adapter's raw turn — then the
+    # tool result, tagged so the model can cite it.
+    second = model.calls[1]["history"]
+    assert second[1] == {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {"id": "call_1", "name": "search_documents", "args": {"query": "refund window"}}
+        ],
+        "raw": {"kind": "fake", "n": 1},
+    }
+    assert second[2]["role"] == "tool" and "[handbook.md#0]" in second[2]["content"]
+    assert "Be brief." in model.calls[0]["system"]
+    assert model.calls[0]["effort"] == "high"
 
 
 def test_models_without_tools_fall_back_to_retrieve_then_answer(
     db, user, agent, emb, chunks, monkeypatch
 ):
-    no_tools = BadRequestError(
-        "x",
-        response=SimpleNamespace(status_code=400, headers={}, request=None),
-        body={"error": {"message": "registry.ollama.ai/library/gemma3 does not support tools"}},
+    model = use(
+        monkeypatch, FakeAdapter(ToolsUnsupported(), [Text("30 days [handbook.md#0]"), Done("end")])
     )
-    model = ScriptedModel(no_tools, [delta("30 days [handbook.md#0]")])
-    use_model(monkeypatch, model)
-    events = []
     result = runner.run(
         user=user,
         agent=agent,
         messages=[{"role": "user", "content": "Refunds?"}],
-        emit=events.append,
+        emit=lambda e: None,
         embedding=emb,
     )
     assert result.mode == "pipeline"
     assert result.answer == "30 days [handbook.md#0]"
-    assert "tools" not in model.calls[1]
-    assert "Passages from my documents" in model.calls[1]["messages"][-1]["content"]
+    assert model.calls[1]["tools"] is None
+    assert "Passages from my documents" in model.calls[1]["history"][-1]["content"]
+
+
+def test_invalid_tool_arguments_go_back_as_an_error(db, user, agent, emb, chunks, monkeypatch):
+    model = use(
+        monkeypatch,
+        FakeAdapter(
+            [ToolCall("call_1", "search_documents", None), Done("tool_calls")],
+            [Text("Sorry"), Done("end")],
+        ),
+    )
+    result = runner.run(
+        user=user,
+        agent=agent,
+        messages=[{"role": "user", "content": "Hi"}],
+        emit=lambda e: None,
+        embedding=emb,
+    )
+    assert result.tool_calls == []  # nothing was searched with a guessed query
+    assert "Invalid arguments" in model.calls[1]["history"][-1]["content"]
+
+
+def test_a_refusal_is_an_error_even_after_text_streamed(db, user, agent, monkeypatch):
+    use(monkeypatch, FakeAdapter([Text("Partial answer"), Done("refusal")]))
+    with pytest.raises(ProviderError, match="The model declined to answer"):
+        runner.run(
+            user=user,
+            agent=agent,
+            messages=[{"role": "user", "content": "Hi"}],
+            emit=lambda e: None,
+        )
 
 
 def test_the_chat_picks_the_connection_and_model(db, user, agent, emb, chunks, monkeypatch):
     connection = Connection.objects.create(
         owner=user, name="Ollama", base_url="http://localhost:11434/v1"
     )
-    model = ScriptedModel([delta("Hi")])
-    use_model(monkeypatch, model)
+    model = use(monkeypatch, FakeAdapter([Text("Hi"), Done("end")]))
     result = runner.run(
         user=user,
         agent=agent,
@@ -144,19 +157,26 @@ def test_the_chat_picks_the_connection_and_model(db, user, agent, emb, chunks, m
 
 
 def test_with_no_embedding_the_model_answers_alone(db, user, agent, monkeypatch):
-    model = ScriptedModel([delta("Hello from the model")])
-    use_model(monkeypatch, model)
+    model = use(monkeypatch, FakeAdapter([Text("Hello from the model"), Done("end")]))
     result = runner.run(
         user=user, agent=agent, messages=[{"role": "user", "content": "Hi"}], emit=lambda e: None
     )
     assert result.mode == "model" and result.answer == "Hello from the model"
-    assert "tools" not in model.calls[0]  # nothing to search, so no search tool
-    assert model.calls[0]["messages"][0] == {"role": "system", "content": "Be brief."}
+    assert model.calls[0]["tools"] is None  # nothing to search, so no search tool
+    assert model.calls[0]["system"] == "Be brief."
+
+
+def test_the_agents_effort_reaches_the_adapter(db, user, agent, monkeypatch):
+    agent.effort = "max"
+    model = use(monkeypatch, FakeAdapter())
+    runner.run(
+        user=user, agent=agent, messages=[{"role": "user", "content": "Hi"}], emit=lambda e: None
+    )
+    assert model.calls[0]["effort"] == "max"
 
 
 def test_cancellation_stops_streaming(db, user, agent, emb, chunks, monkeypatch):
-    model = ScriptedModel([delta("a"), delta("b"), delta("c")])
-    use_model(monkeypatch, model)
+    use(monkeypatch, FakeAdapter([Text("a"), Text("b"), Text("c"), Done("end")]))
     tokens = []
     with pytest.raises(runner.Cancelled):
         runner.run(

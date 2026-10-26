@@ -4,6 +4,7 @@ import { APP_URL } from "../support/env.ts";
 import { ModelPicker } from "./model-picker.ts";
 
 export type ProviderFields = {
+  kind?: "OpenAI-compatible" | "Anthropic" | "Google";
   baseUrl?: string;
   apiKey?: string;
   chatModel?: string;
@@ -25,6 +26,10 @@ export class SettingsPage {
     const set = async (label: string, value?: string) => {
       if (value !== undefined) await this.page.getByLabel(label, { exact: true }).fill(value);
     };
+    if (fields.kind !== undefined) {
+      await this.page.getByRole("combobox", { name: "Provider type" }).click();
+      await this.page.getByRole("option", { name: fields.kind, exact: true }).click();
+    }
     await set("Base URL", fields.baseUrl);
     await set("API key", fields.apiKey);
     if (fields.chatModel !== undefined) await new ModelPicker(this.page, "Chat model").pick(fields.chatModel);

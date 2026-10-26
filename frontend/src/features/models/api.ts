@@ -17,12 +17,14 @@ export type Catalogue = { endpoint: string; hint: string; models: ModelInfo[] };
  *  an unsaved one being typed into a form. */
 export type ModelSource =
   | { connection: number | null }
-  | { probe: { base_url: string; api_key: string } };
+  | { probe: { kind: string; base_url: string; api_key: string } };
 
 export type Want = "embedding" | "chat";
 
 function sourceKey(source: ModelSource) {
-  return "probe" in source ? `probe:${source.probe.base_url}` : (source.connection ?? "default");
+  return "probe" in source
+    ? `probe:${source.probe.kind}:${source.probe.base_url}`
+    : (source.connection ?? "default");
 }
 
 /** The endpoint's models of one kind (plus unknowns), or all of them. Cached for 5 minutes;
@@ -44,7 +46,12 @@ export function useModelCatalogue(source: ModelSource, want: Want | null, enable
           : `/api/providers/connections/${source.connection}/models/${kind}`,
       );
     },
-    enabled: enabled && (!("probe" in source) || /^https?:\/\/.+/.test(source.probe.base_url)),
+    // An OpenAI-compatible probe needs a URL; Anthropic and Google default to their own API.
+    enabled:
+      enabled &&
+      (!("probe" in source) ||
+        source.probe.kind !== "openai" ||
+        /^https?:\/\/.+/.test(source.probe.base_url)),
     retry: false,
     staleTime: 5 * 60_000,
   });

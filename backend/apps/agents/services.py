@@ -10,7 +10,7 @@ DEMO_AGENT = "demo"  # the canned-stream agent from spec 0001; needs no LLM
 @transaction.atomic
 def save_agent(user, *, data: dict, instance: Agent | None = None) -> Agent:
     agent = instance or Agent(owner=user)
-    for field in ("name", "system_message"):
+    for field in ("name", "system_message", "effort"):
         if field in data:
             setattr(agent, field, data[field])
     if "rag_config" in data:
@@ -26,6 +26,7 @@ def snapshot(agent: Agent) -> dict:
         "id": agent.pk,
         "name": agent.name,
         "system_message": agent.system_message,
+        "effort": agent.effort,
         "rag_config": {**default_rag_config(), **agent.rag_config},
     }
 
@@ -37,6 +38,7 @@ def from_snapshot(user, snap: dict) -> Agent:
         owner=user,
         name=snap["name"],
         system_message=snap["system_message"],
+        effort=snap.get("effort", ""),
         rag_config=snap["rag_config"],
     )
 

@@ -16,17 +16,14 @@ import {
   useSaveProvider,
   useTestConnection,
 } from "./api";
+import { KindSelect } from "./kind-select";
+import { needsBaseUrl, PRESETS, type ProviderKind } from "./kinds";
 
-const PRESETS = [
-  { name: "OpenAI", base_url: "https://api.openai.com/v1", chat: "gpt-5-mini" },
-  { name: "OpenRouter", base_url: "https://openrouter.ai/api/v1", chat: "openai/gpt-5-mini" },
-  { name: "Ollama (local)", base_url: "http://localhost:11434/v1", chat: "" },
-];
-
-type Form = { base_url: string; api_key: string; chat_model: string };
+type Form = { kind: ProviderKind; base_url: string; api_key: string; chat_model: string };
 
 function initialForm(saved: ProviderConfig | null): Form {
   return {
+    kind: saved?.kind ?? "openai",
     base_url: saved?.base_url ?? "",
     api_key: "",
     chat_model: saved?.chat_model ?? "",
@@ -44,6 +41,7 @@ export function ProviderForm({ saved }: { saved: ProviderConfig | null }) {
 
   function payload(): SaveProviderInput {
     return {
+      kind: form.kind,
       base_url: form.base_url.trim(),
       // Blank means "keep the saved key" — the server never sends it back to pre-fill.
       ...(form.api_key ? { api_key: form.api_key } : {}),
@@ -84,6 +82,7 @@ export function ProviderForm({ saved }: { saved: ProviderConfig | null }) {
             onClick={() =>
               setForm((f) => ({
                 ...f,
+                kind: p.kind,
                 base_url: p.base_url,
                 chat_model: p.chat || f.chat_model,
               }))
@@ -94,13 +93,26 @@ export function ProviderForm({ saved }: { saved: ProviderConfig | null }) {
         ))}
       </div>
 
-      <Field id="base_url" label="Base URL" error={errors.base_url}>
+      <KindSelect
+        id="kind"
+        value={form.kind}
+        onChange={(kind) => setForm((f) => ({ ...f, kind }))}
+      />
+
+      <Field
+        id="base_url"
+        label="Base URL"
+        error={errors.base_url}
+        hint={
+          needsBaseUrl(form.kind) ? undefined : "Optional — leave blank for the provider's own API."
+        }
+      >
         <Input
           id="base_url"
           value={form.base_url}
           onChange={set("base_url")}
-          placeholder="https://api.openai.com/v1"
-          required
+          placeholder={needsBaseUrl(form.kind) ? "https://api.openai.com/v1" : "Provider default"}
+          required={needsBaseUrl(form.kind)}
         />
       </Field>
 
@@ -134,7 +146,9 @@ export function ProviderForm({ saved }: { saved: ProviderConfig | null }) {
           id="chat_model"
           label="Chat model"
           value={form.chat_model}
-          source={{ probe: { base_url: form.base_url.trim(), api_key: form.api_key } }}
+          source={{
+            probe: { kind: form.kind, base_url: form.base_url.trim(), api_key: form.api_key },
+          }}
           want="chat"
           onChange={(id) => setForm((f) => ({ ...f, chat_model: id }))}
         />
@@ -154,7 +168,7 @@ export function ProviderForm({ saved }: { saved: ProviderConfig | null }) {
         <Button
           type="button"
           variant="outline"
-          disabled={test.isPending || !form.base_url}
+          disabled={test.isPending || (needsBaseUrl(form.kind) && !form.base_url)}
           onClick={() => {
             test.mutate(payload());
           }}
