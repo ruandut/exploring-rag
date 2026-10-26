@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useSaveSuite, useSuites } from "@/features/benchmarks/api";
 import { MetricCatalog } from "@/features/benchmarks/metric-catalog";
 import { metricName } from "@/features/benchmarks/metrics";
+import { DeletedSuiteRuns } from "@/features/benchmarks/deleted-suite-runs";
 import { ModelSpeed } from "@/features/benchmarks/model-speed";
 import { FolderDialog } from "@/features/library/folder-dialog";
 import { Button } from "@/components/ui/button";
@@ -67,6 +68,8 @@ function BenchmarksPage() {
           </CardContent>
         </Card>
       )}
+
+      <DeletedSuiteRuns />
 
       <ModelSpeed />
 

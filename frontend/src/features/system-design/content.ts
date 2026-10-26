@@ -4,7 +4,7 @@
 // MUST update this file in the same change. Bump LAST_UPDATED when you do.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const LAST_UPDATED = "2026-10-26 · spec 0013 Chat setup card";
+export const LAST_UPDATED = "2026-10-26 · spec 0014 Delete a suite";
 
 /** live = works end-to-end today · demo = wired up with fake data · planned = spec drafted */
 export type Status = "live" | "demo" | "planned";
@@ -199,6 +199,7 @@ export const EVAL_FLOW = [
   "The parent aggregates (mean, p95), checks every applicable boundary (n/a metrics are skipped), and marks the run passed or failed.",
   "Retry failed cases replays them on Hatchet; compare two runs side by side with per-metric deltas, coloured by each metric's direction (lower latency is better).",
   "Stop run (spec 0012) flips the run and its pending cases to cancelled in the database, then cancels the parent in Hatchet. A case that still starts sees it isn't pending and exits; one mid-answer polls the same flag through the is_cancelled hook the agent loop and adapters already have. A stopped run never passes; Resume re-runs only what didn't finish.",
+  "Deleting a suite (spec 0014) removes its cases and boundaries but keeps its runs: each run carries a snapshot of the suite it tested, so it still reads, finishes or resumes. They're listed under Runs of deleted suites on the Benchmarks page (runs?suite=deleted).",
   "Model speed pools every finished case by the model that answered (agent and bare runs together) — typical first token, slow-case total and typical tokens per second.",
 ];
 

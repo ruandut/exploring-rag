@@ -1,4 +1,5 @@
 import { Download, Plus, Trash2, Upload } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -16,9 +17,12 @@ import {
   type EvalCase,
   exportCases,
   type Suite,
+  useDeleteSuite,
   useImportCases,
+  useRuns,
   useSaveSuite,
 } from "./api";
+import { DeleteSuiteDialog } from "./delete-suite-dialog";
 import { METRICS, metricName, SELECTABLE } from "./metrics";
 
 // Native selects on purpose (specs pick options with Playwright's selectOption). native-select
@@ -68,6 +72,10 @@ export function SuiteEditor({ suite }: { suite: Suite }) {
   const importCases = useImportCases(suite.id);
   const connections = useConnections();
   const fileInput = useRef<HTMLInputElement>(null);
+  const remove = useDeleteSuite();
+  const runs = useRuns(suite.id);
+  const navigate = useNavigate();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const setCase = (i: number, patch: Partial<EvalCase>) =>
     setCases((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
@@ -421,9 +429,36 @@ export function SuiteEditor({ suite }: { suite: Suite }) {
       {save.error && (
         <p className="text-sm text-destructive">{detail(save.error) ?? "Couldn't save"}</p>
       )}
-      <Button type="submit" className="w-fit" disabled={save.isPending}>
-        {save.isPending ? "Saving…" : "Save suite"}
-      </Button>
+      {remove.error && (
+        <p className="text-sm text-destructive">{detail(remove.error) ?? "Couldn't delete"}</p>
+      )}
+      <div className="flex flex-wrap justify-between gap-2">
+        <Button type="submit" className="w-fit" disabled={save.isPending}>
+          {save.isPending ? "Saving…" : "Save suite"}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-fit text-destructive hover:text-destructive"
+          onClick={() => setConfirmingDelete(true)}
+        >
+          <Trash2 className="size-4" /> Delete suite
+        </Button>
+      </div>
+      {confirmingDelete && (
+        <DeleteSuiteDialog
+          name={suite.name}
+          runs={runs.data?.length ?? 0}
+          pending={remove.isPending}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() =>
+            remove.mutate(suite.id, {
+              onSuccess: () => void navigate({ to: "/benchmarks" }),
+              onSettled: () => setConfirmingDelete(false),
+            })
+          }
+        />
+      )}
     </form>
   );
 }

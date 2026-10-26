@@ -30,6 +30,9 @@ class SuiteViewSet(viewsets.ModelViewSet):
             self.request.user, data=serializer.validated_data, instance=serializer.instance
         )
 
+    def perform_destroy(self, instance):
+        services.delete_suite(instance)
+
     @action(detail=True, methods=["post"], url_path="import")
     def import_cases(self, request, pk=None):
         """Append cases from a JSONL file (multipart `file`) or raw text (`text`)."""

@@ -33,6 +33,13 @@ def save_suite(user, *, data: dict, instance: EvalSuite | None = None) -> EvalSu
     return suite
 
 
+def delete_suite(suite: EvalSuite) -> None:
+    """Delete a suite with its cases and boundaries (spec 0014). Its benchmark runs are kept:
+    each carries a snapshot of the suite it tested, and benchmarks lists them as runs of
+    deleted suites (the run's link to the suite is SET_NULL)."""
+    suite.delete()
+
+
 def parse_jsonl(text: str) -> list[dict]:
     """One case per line, e.g.
     {"kind": "qa", "question": "…", "reference_answer": "…", "relevant_documents": ["a.md"],

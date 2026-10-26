@@ -77,7 +77,12 @@ export function useDeleteSuite() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => api<null>(`/api/evals/suites/${id}/`, { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["suites"] }),
+    onSuccess: (_, id) => {
+      qc.removeQueries({ queryKey: ["suite", id] });
+      void qc.invalidateQueries({ queryKey: ["suites"] });
+      // Its runs are kept and now belong under "Runs of deleted suites" (spec 0014).
+      void qc.invalidateQueries({ queryKey: ["deleted-suite-runs"] });
+    },
   });
 }
 
@@ -216,6 +221,14 @@ export function useRuns(suiteId: number) {
   });
 }
 
+/** Runs whose suite was deleted — kept, each with its suite snapshot (spec 0014). */
+export function useDeletedSuiteRuns() {
+  return useQuery({
+    queryKey: ["deleted-suite-runs"],
+    queryFn: () => api<Run[]>("/api/benchmarks/runs/?suite=deleted"),
+  });
+}
+
 export function useRun(id: number | null) {
   return useQuery({
     queryKey: ["run", id],
@@ -279,6 +292,7 @@ export function useRunEvents(onProgress?: (runId: number, done: number, total: n
     }
     if (e.type === "benchmark.completed") {
       void qc.invalidateQueries({ queryKey: ["runs"] });
+      void qc.invalidateQueries({ queryKey: ["deleted-suite-runs"] });
       void qc.invalidateQueries({ queryKey: ["model-speed"] });
     }
   });

@@ -68,5 +68,6 @@ Run one spec, even a draft: `cd acceptance && vp run test -- ../specs/0005-agent
 | [0011](0011-benchmark-timings.feature.md) | Benchmark timings: phase breakdown, tokens/s, model speed | Done |
 | [0012](0012-stop-a-benchmark-run.feature.md) | Stop a benchmark run (and resume it) | Done |
 | [0013](0013-chat-setup-card.feature.md) | Chat setup card and a one-row message bar | Done |
+| [0014](0014-delete-a-suite.feature.md) | Delete a suite (runs are kept) | Done |
 
 The in-app System Design page reads this folder directly, so its spec list is always current.

@@ -124,6 +124,19 @@ export class BenchmarksPage {
     await region.getByLabel("Run status").filter({ hasText: statuses }).waitFor({ timeout: RUN_TIMEOUT });
   }
 
+  /** Open a suite and press "Delete suite"; returns the confirmation dialog (spec 0014). */
+  async startDeletingSuite(id: number): Promise<Locator> {
+    await this.openSuite(id);
+    await this.page.getByRole("button", { name: "Delete suite", exact: true }).click();
+    const dialog = this.page.getByRole("alertdialog");
+    await dialog.waitFor();
+    return dialog;
+  }
+
+  get deletedSuiteRuns(): Locator {
+    return this.page.getByRole("list", { name: "Runs of deleted suites" });
+  }
+
   /** Press a button in one run's panel (e.g. "Stop run", "Resume"). */
   async pressInRun(region: Locator, name: string): Promise<void> {
     await region.getByRole("button", { name, exact: true }).click();

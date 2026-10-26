@@ -12,12 +12,15 @@ from .serializers import RunDetailSerializer, RunSerializer, StartRunSerializer
 
 
 class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
-    """Start runs (POST), list them (?suite=id), read results, retry failed cases."""
+    """Start runs (POST), list them (?suite=id, or ?suite=deleted), read results, retry failed
+    cases, stop a run."""
 
     def get_queryset(self):
         qs = BenchmarkRun.objects.filter(owner=self.request.user)
         suite = self.request.query_params.get("suite")
-        if suite:
+        if suite == "deleted":  # runs whose suite was deleted (spec 0014) — kept on purpose
+            qs = qs.filter(suite__isnull=True)
+        elif suite:
             qs = qs.filter(suite_id=suite)
         return qs.prefetch_related("results") if self.action == "retrieve" else qs
 

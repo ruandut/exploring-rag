@@ -39,7 +39,7 @@ function RunPage() {
 
   return (
     <div className="mx-auto grid w-full max-w-6xl gap-4 p-4">
-      {run.data.suite && (
+      {run.data.suite ? (
         <Link
           to="/benchmarks/$suiteId"
           params={{ suiteId: String(run.data.suite) }}
@@ -47,6 +47,11 @@ function RunPage() {
         >
           <ArrowLeft className="size-4" /> {run.data.suite_name}
         </Link>
+      ) : (
+        // Spec 0014: the suite was deleted; the run kept its snapshot, so it still reads fine.
+        <p aria-label="Suite deleted" className="text-sm text-muted-foreground">
+          Suite deleted — this run kept a copy of “{run.data.suite_name}”.
+        </p>
       )}
       {runs.length === 2 && <Comparison a={runs[0]} b={runs[1]} />}
       <div className={cn("grid gap-4", runs.length === 2 && "lg:grid-cols-2")}>

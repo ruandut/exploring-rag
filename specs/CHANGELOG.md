@@ -116,3 +116,8 @@
   embedding, model — pre-filled with the last chat's) and **Start chat** swaps it for the
   message bar. The bar is one row again: its pickers moved behind an info button (**Chat
   options**). Existing conversations open straight on the bar. Frontend only.
+- **0014 Delete a suite — Done.** **Delete suite** in the suite editor, with a confirmation.
+  The suite's runs are kept (your call) — each carries a snapshot of the suite it tested —
+  and listed under **Runs of deleted suites** on the Benchmarks page; a run page whose suite
+  is gone says so. A run still going finishes normally. The fake LLM's `stuck` answers now
+  speed up as soon as `stuck` is switched off.

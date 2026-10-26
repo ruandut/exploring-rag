@@ -343,7 +343,9 @@ function drip(res: ServerResponse, frames: string[], end: string, delayMs: numbe
     if (res.destroyed) return;
     if (i < frames.length) {
       res.write(frames[i++]);
-      setTimeout(tick, delayMs);
+      // A stuck answer speeds up as soon as `stuck` is switched off (spec 0014), so a run
+      // left in flight finishes without waiting out its 3 s-per-word drip.
+      setTimeout(tick, delayMs === STUCK_DELAY_MS && !stuck ? 20 : delayMs);
     } else {
       res.end(end);
     }

@@ -6,7 +6,7 @@ import { type DataTable, Given, Then, When } from "@cucumber/cucumber";
 
 import { BenchmarksPage, type CaseRow } from "../pages/benchmarks-page.ts";
 import { FIXTURES } from "../pages/library-page.ts";
-import { ApiClient, createTestUser } from "../support/app.ts";
+import { createTestUser } from "../support/app.ts";
 import { createAgent } from "../support/documents.ts";
 import { APP_URL } from "../support/env.ts";
 import type { AppWorld } from "../support/world.ts";
@@ -358,9 +358,9 @@ Then(
 );
 
 Given("another user has a suite {string}", async function (this: AppWorld, name: string) {
-  const other = new ApiClient();
-  await other.login(createTestUser("other"));
-  const res = await other.post("/api/evals/suites/", { name, ...BASICS });
+  this.otherUser = createTestUser("other");
+  await this.otherApi.login(this.otherUser);
+  const res = await this.otherApi.post("/api/evals/suites/", { name, ...BASICS });
   assert.equal(res.status, 201, res.text);
   this.suites[name] = res.body.id;
 });
@@ -651,4 +651,63 @@ Then("I can't stop it", async function (this: AppWorld) {
   assert.equal(theirs.body.status, "running");
   // Tidy up: the owner stops it, so it doesn't keep the worker busy.
   assert.equal((await this.otherApi.post(`/api/benchmarks/runs/${this.runId}/cancel/`, {})).status, 202);
+});
+
+// --- deleting a suite (specs/0014-delete-a-suite.feature.md) ---------------------------------
+
+When("I delete the suite {string}", async function (this: AppWorld, name: string) {
+  await new BenchmarksPage(this.page).startDeletingSuite(await ensureSuite(this, name));
+});
+
+When("I delete the suite {string} and confirm", async function (this: AppWorld, name: string) {
+  const dialog = await new BenchmarksPage(this.page).startDeletingSuite(await ensureSuite(this, name));
+  await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+  await this.page.waitForURL(/\/benchmarks$/);
+});
+
+Then("the confirmation says its {int} run is kept", async function (this: AppWorld, n: number) {
+  const text = await this.page.getByRole("alertdialog").textContent();
+  assert.match(text ?? "", new RegExp(`Its ${n} runs? (is|are) kept under Runs of deleted suites`), text ?? "");
+});
+
+Then(
+  "I'm on the Benchmarks page and {string} isn't listed",
+  async function (this: AppWorld, name: string) {
+    await this.page.waitForURL(/\/benchmarks$/);
+    await this.page.getByRole("button", { name: "New suite" }).waitFor();
+    assert.equal(await this.page.getByRole("list", { name: "Suites" }).getByRole("listitem", { name, exact: true }).count(), 0);
+  },
+);
+
+Then("{string} is listed under runs of deleted suites", async function (this: AppWorld, name: string) {
+  const page = new BenchmarksPage(this.page);
+  if (!/\/benchmarks$/.test(this.page.url())) await this.page.goto(`${APP_URL}/benchmarks`);
+  await page.deletedSuiteRuns.getByRole("listitem", { name: new RegExp(`^${name} × `) }).first().waitFor();
+});
+
+Then("that run still opens with its results", async function (this: AppWorld) {
+  await this.page.goto(`${APP_URL}/benchmarks/runs/${this.runId}`);
+  const page = new BenchmarksPage(this.page);
+  await this.page.getByLabel("Suite deleted").waitFor();
+  const run = page.run$();
+  await page.waitFinished(run);
+  assert.equal(await run.getByRole("list", { name: "Case results" }).getByRole("listitem").count(), BASICS.cases.length);
+});
+
+Then("that run finishes", async function (this: AppWorld) {
+  const deadline = Date.now() + 60_000;
+  let status = "running";
+  while (status === "running") {
+    assert.ok(Date.now() < deadline, "The run didn't finish");
+    await new Promise((r) => setTimeout(r, 300));
+    status = (await this.api.get(`/api/benchmarks/runs/${this.runId}/`)).body.status;
+  }
+  assert.ok(status === "passed" || status === "failed", `Run status: ${status}`);
+});
+
+Then("I can't delete {string}", async function (this: AppWorld, name: string) {
+  const res = await this.api.request("DELETE", `/api/evals/suites/${this.suites[name]}/`);
+  assert.equal(res.status, 404);
+  const theirs = await this.otherApi.get(`/api/evals/suites/${this.suites[name]}/`);
+  assert.equal(theirs.status, 200, "Their suite was deleted");
 });
