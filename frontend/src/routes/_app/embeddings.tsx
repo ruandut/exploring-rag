@@ -93,7 +93,9 @@ function EmbeddingsPage() {
       ) : embeddings.data?.length ? (
         <ul aria-label="Embeddings" className="grid gap-4 md:grid-cols-2">
           {embeddings.data.map((emb) => (
-            <li key={emb.id} aria-label={emb.name}>
+            // min-w-0: a grid item is at least as wide as its content by default, so one long
+            // file name would widen the card past the screen instead of truncating.
+            <li key={emb.id} aria-label={emb.name} className="min-w-0">
               <EmbeddingCard
                 embedding={emb}
                 onEdit={() => setEditing(emb)}
@@ -250,9 +252,11 @@ function EmbeddingCard({
           </summary>
           <ul aria-label={`Documents in ${emb.name}`} className="mt-2 grid gap-1">
             {docs.data?.map((d) => (
-              <li key={d.document_id} className="flex items-center justify-between gap-2">
-                <span className="truncate">{d.name}</span>
-                <span className="flex items-center gap-2 text-xs text-muted-foreground">
+              <li key={d.document_id} className="flex min-w-0 items-center justify-between gap-2">
+                <span className="min-w-0 truncate" title={d.name}>
+                  {d.name}
+                </span>
+                <span className="flex shrink-0 items-center gap-2 text-xs whitespace-nowrap text-muted-foreground">
                   {d.status === "ready" && `${d.chunk_count} chunks`}
                   <StatusBadge status={d.status} />
                 </span>
