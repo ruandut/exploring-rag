@@ -41,10 +41,15 @@ export type ServerEvent =
       type: "benchmark.case";
       run_id: number;
       result_id: number;
-      status: "pending" | "done" | "failed";
+      status: "pending" | "done" | "failed" | "cancelled";
       passed: boolean | null;
     }
-  | { type: "benchmark.completed"; run_id: number; status: "running" | "passed" | "failed" }
+  // "cancelled" = the owner stopped the run (spec 0012).
+  | {
+      type: "benchmark.completed";
+      run_id: number;
+      status: "running" | "passed" | "failed" | "cancelled";
+    }
   | { type: "agent.started"; run_id: string; conversation_id?: number }
   | { type: "agent.thinking"; run_id: string; text: string }
   | { type: "agent.tool_call"; run_id: string; tool: string; args: Record<string, unknown> }

@@ -125,7 +125,8 @@ Rules:
   `embedding.status{embedding_id,status,done,total,error}`,
   `agent.started{conversation_id}|thinking|tool_call|retrieval|token|done{model,mode}|cancelled|error`.
   Client `agent.ask` carries `embedding_id` (null = none), `connection_id`, `model`.
-  `benchmark.progress|case|completed` (ids are BenchmarkRun ids).
+  `benchmark.progress|case|completed` (ids are BenchmarkRun ids; `completed.status` may be
+  `cancelled` when the owner stopped the run).
   Citations in answers are `[document#chunk]`.
   Planned (0006): `eval.progress|eval.case_result|eval.completed`.
 - **Auth**: REST uses `Authorization: Bearer`. Websocket auth is the first message

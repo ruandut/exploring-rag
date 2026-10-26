@@ -198,6 +198,7 @@ export const EVAL_FLOW = [
   "Every finished case sends benchmark.case + benchmark.progress over the websocket — the page updates live.",
   "The parent aggregates (mean, p95), checks every applicable boundary (n/a metrics are skipped), and marks the run passed or failed.",
   "Retry failed cases replays them on Hatchet; compare two runs side by side with per-metric deltas, coloured by each metric's direction (lower latency is better).",
+  "Stop run (spec 0012) flips the run and its pending cases to cancelled in the database, then cancels the parent in Hatchet. A case that still starts sees it isn't pending and exits; one mid-answer polls the same flag through the is_cancelled hook the agent loop and adapters already have. A stopped run never passes; Resume re-runs only what didn't finish.",
   "Model speed pools every finished case by the model that answered (agent and bare runs together) — typical first token, slow-case total and typical tokens per second.",
 ];
 

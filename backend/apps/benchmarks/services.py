@@ -6,6 +6,8 @@ finalize() when they've all finished. retry_failed() does the same for just the 
 (errored or scored below the case pass threshold).
 """
 
+import logging
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -21,6 +23,8 @@ from apps.scoring import aggregate
 from apps.scoring.metrics import METRICS
 
 from .models import BenchmarkRun, CaseResult
+
+log = logging.getLogger(__name__)
 
 OPERATIONAL = {
     "ttft": "ttft_ms",
@@ -173,6 +177,7 @@ def retry_failed(run: BenchmarkRun) -> int:
     CaseResult.objects.filter(pk__in=[r.pk for r in failed]).update(
         status=CaseResult.Status.PENDING, error="", passed=None
     )
+    # Also how a stopped run resumes: its stopped cases aren't passed, so they re-run too.
     run.status = BenchmarkRun.Status.RUNNING
     run.finished_at = None
     run.save(update_fields=["status", "finished_at"])
@@ -190,8 +195,76 @@ def _launch(run: BenchmarkRun, result_ids: list[int]) -> None:
     _progress(run)
 
 
+@transaction.atomic
+def cancel_run(run: BenchmarkRun) -> bool:
+    """Stop a running run (spec 0012). False if it had already finished.
+
+    The database is the source of truth: the run and every pending case flip to cancelled
+    here, so a child that still starts — or one mid-answer polling `is_cancelled` — stops
+    even if Hatchet's cancel arrives late. Cancelling the parent in Hatchet is the fast
+    path that drops the queued children."""
+    if not BenchmarkRun.objects.filter(pk=run.pk, status=BenchmarkRun.Status.RUNNING).update(
+        status=BenchmarkRun.Status.CANCELLED
+    ):
+        return False
+    run.results.filter(status=CaseResult.Status.PENDING).update(
+        status=CaseResult.Status.CANCELLED, passed=None
+    )
+    run.refresh_from_db()
+    results = list(run.results.all())
+    finished = [r for r in results if r.status != CaseResult.Status.CANCELLED]
+    summary, _ = _summary(run, finished)
+    # A stopped run never passes: its boundaries aren't checked, its metrics are partial.
+    for b in summary["boundaries"]:
+        b["passed"], b["margin"] = None, None
+    run.summary = {
+        **summary,
+        "total": len(results),
+        "stopped_cases": len(results) - len(finished),
+        "partial": True,
+    }
+    run.finished_at = timezone.now()
+    run.save(update_fields=["summary", "finished_at"])
+    hatchet_run_id = run.hatchet_run_id
+    transaction.on_commit(lambda: _cancel_in_hatchet(hatchet_run_id))
+    send_to_user(
+        run.owner_id, {"type": "benchmark.completed", "run_id": run.pk, "status": run.status}
+    )
+    return True
+
+
+def _cancel_in_hatchet(hatchet_run_id: str) -> None:
+    if not hatchet_run_id:
+        return
+    from apps.jobs.hatchet import get_hatchet
+
+    try:
+        get_hatchet().runs.cancel(hatchet_run_id)
+    except Exception:  # best effort: the database flag already stops every case
+        log.exception("Couldn't cancel Hatchet run %s", hatchet_run_id)
+
+
+def is_case_cancelled(result_id: int) -> bool:
+    """True once the case's run was stopped (its case is no longer pending)."""
+    return not CaseResult.objects.filter(pk=result_id, status=CaseResult.Status.PENDING).exists()
+
+
+# Every column a case result writes back (all but its identity and what it was asked).
+_RESULT_FIELDS = [
+    f.attname
+    for f in CaseResult._meta.concrete_fields
+    if f.attname not in ("id", "run_id", "position", "case")
+]
+
+
 def record_result(result: CaseResult) -> None:
-    result.save()
+    # Saved only while the case is still pending: a case that finishes after its run was
+    # stopped keeps its "Stopped" status instead of quietly getting a result (spec 0012).
+    saved = CaseResult.objects.filter(pk=result.pk, status=CaseResult.Status.PENDING).update(
+        **{f: getattr(result, f) for f in _RESULT_FIELDS}
+    )
+    if not saved:
+        return
     run = result.run
     send_to_user(
         run.owner_id,
@@ -222,7 +295,22 @@ def finalize(run: BenchmarkRun) -> BenchmarkRun:
     are optional, cases aren't — so the run verdict can never say "Passed" while the case list
     shows failures.
     """
-    results = list(run.results.all())
+    run.refresh_from_db(fields=["status"])
+    if run.status == BenchmarkRun.Status.CANCELLED:
+        return run  # stopped meanwhile: cancel_run already summarised it
+    summary, passed = _summary(run, list(run.results.all()))
+    run.summary = summary
+    run.status = BenchmarkRun.Status.PASSED if passed else BenchmarkRun.Status.FAILED
+    run.finished_at = timezone.now()
+    run.save(update_fields=["summary", "status", "finished_at"])
+    send_to_user(
+        run.owner_id, {"type": "benchmark.completed", "run_id": run.pk, "status": run.status}
+    )
+    return run
+
+
+def _summary(run: BenchmarkRun, results: list[CaseResult]) -> tuple[dict, bool]:
+    """Aggregate the given cases' metrics and check the boundaries: (summary, passed)."""
     scored = [r for r in results if r.status == CaseResult.Status.DONE]
     errored = [r for r in results if r.status == CaseResult.Status.FAILED]
     failed = [r for r in results if not r.passed]  # errored or below the case threshold
@@ -251,7 +339,7 @@ def finalize(run: BenchmarkRun) -> BenchmarkRun:
     ]
     passed = not failed and all(b["passed"] is not False for b in boundaries)
 
-    run.summary = {
+    summary = {
         "done": len(results),
         "total": len(results),
         "failed_cases": len(failed),
@@ -260,13 +348,7 @@ def finalize(run: BenchmarkRun) -> BenchmarkRun:
         "metrics": metrics,
         "boundaries": boundaries,
     }
-    run.status = BenchmarkRun.Status.PASSED if passed else BenchmarkRun.Status.FAILED
-    run.finished_at = timezone.now()
-    run.save(update_fields=["summary", "status", "finished_at"])
-    send_to_user(
-        run.owner_id, {"type": "benchmark.completed", "run_id": run.pk, "status": run.status}
-    )
-    return run
+    return summary, passed
 
 
 def metric_label(metric_id: str, k: int) -> str:

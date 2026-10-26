@@ -12,6 +12,7 @@ class BenchmarkRun(models.Model):
         RUNNING = "running"
         PASSED = "passed"
         FAILED = "failed"
+        CANCELLED = "cancelled"  # stopped by its owner (spec 0012) — never passes
 
     class TargetKind(models.TextChoices):
         AGENT = "agent"
@@ -52,6 +53,7 @@ class CaseResult(models.Model):
         PENDING = "pending"
         DONE = "done"
         FAILED = "failed"  # the target or judge errored — retryable
+        CANCELLED = "cancelled"  # the run was stopped before this case finished — resumable
 
     run = models.ForeignKey(BenchmarkRun, on_delete=models.CASCADE, related_name="results")
     position = models.PositiveIntegerField()

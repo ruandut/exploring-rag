@@ -557,3 +557,98 @@ Then("{string} is listed above {string}", async function (this: AppWorld, above:
   const at = (m: string) => names.findIndex((n) => n.endsWith(` · ${m}`));
   assert.ok(at(above) >= 0 && at(above) < at(below), `Order: ${names.join(", ")}`);
 });
+
+// --- stopping a run (specs/0012-stop-a-benchmark-run.feature.md) -----------------------------
+
+Given("my provider answers very slowly", function (this: AppWorld) {
+  this.fakeLlm.stuck = true;
+});
+
+When("my provider answers at normal speed again", function (this: AppWorld) {
+  this.fakeLlm.stuck = false;
+});
+
+When("I press {string} while it is running", async function (this: AppWorld, button: string) {
+  const page = new BenchmarksPage(this.page);
+  const run = page.run$();
+  await run.getByLabel("Run status").filter({ hasText: /^Running$/ }).waitFor();
+  await page.pressInRun(run, button);
+});
+
+Then("the run is marked {string} without reloading the page", async function (this: AppWorld, status: string) {
+  const run = new BenchmarksPage(this.page).run$();
+  await run.getByLabel("Run status").filter({ hasText: new RegExp(`^${status}$`) }).waitFor({ timeout: 15_000 });
+  assert.equal(this.pageLoads, 0, "The page reloaded");
+});
+
+Then("every unfinished case shows {string}", async function (this: AppWorld, label: string) {
+  const run = new BenchmarksPage(this.page).run$();
+  const badges = run.getByLabel("Case status");
+  // Wait until nothing is still pending, then every case that didn't finish says "Stopped".
+  await run.getByLabel("Case status").filter({ hasText: "Pending" }).first().waitFor({ state: "detached" });
+  const all = await badges.allTextContents();
+  const unfinished = all.filter((s) => !["Passed", "Failed", "Error"].includes(s));
+  assert.ok(unfinished.length > 0, `No unfinished cases: ${all.join(", ")}`);
+  assert.deepEqual(unfinished, unfinished.map(() => label), `Case statuses: ${all.join(", ")}`);
+});
+
+Then("my provider receives no new requests for that run", async function (this: AppWorld) {
+  const before = this.fakeLlm.chats.length;
+  // Longer than a case polls for cancellation (1 s) plus a queued case starting.
+  await new Promise((r) => setTimeout(r, 4_000));
+  assert.deepEqual(this.fakeLlm.chats.slice(before), [], "The provider was called after Stop");
+});
+
+Then("the run summary says it is partial", async function (this: AppWorld) {
+  await new BenchmarksPage(this.page).run$().getByLabel("Partial summary").waitFor();
+});
+
+Then("I can't press {string} again", async function (this: AppWorld, button: string) {
+  const run = new BenchmarksPage(this.page).run$();
+  assert.equal(await run.getByRole("button", { name: button, exact: true }).count(), 0);
+});
+
+Then("the run finishes with {int} stopped cases", async function (this: AppWorld, n: number) {
+  const page = new BenchmarksPage(this.page);
+  const run = page.run$();
+  await page.waitFinished(run, /^(Passed|Failed)$/);
+  const stopped = (await run.getByLabel("Case status").allTextContents()).filter((s) => s === "Stopped");
+  assert.equal(stopped.length, n);
+});
+
+Then(
+  "the run is marked {string} or {string}, not {string}",
+  async function (this: AppWorld, a: string, b: string, not: string) {
+    const status = await new BenchmarksPage(this.page).run$().getByLabel("Run status").textContent();
+    assert.ok(status === a || status === b, `Run status: ${status} (must not be ${not})`);
+  },
+);
+
+Given("another user has a running benchmark run", async function (this: AppWorld) {
+  this.fakeLlm.stuck = true; // keeps it running while we try to stop it
+  this.otherUser = createTestUser("other");
+  await this.otherApi.login(this.otherUser);
+  const config = await this.otherApi.put("/api/providers/config/", {
+    base_url: this.fakeLlm.baseUrl,
+    api_key: "sk-good-key",
+    chat_model: "fake-chat",
+  });
+  assert.equal(config.status, 200, config.text);
+  const suite = await this.otherApi.post("/api/evals/suites/", { name: "Theirs", ...BASICS });
+  assert.equal(suite.status, 201, suite.text);
+  const start = await this.otherApi.post("/api/benchmarks/runs/", {
+    suite: suite.body.id,
+    targets: [{ kind: "model", model: "fake-chat" }],
+  });
+  assert.equal(start.status, 201, start.text);
+  this.runId = start.body[0].id;
+});
+
+Then("I can't stop it", async function (this: AppWorld) {
+  const res = await this.api.post(`/api/benchmarks/runs/${this.runId}/cancel/`, {});
+  assert.equal(res.status, 404);
+  const theirs = await this.otherApi.get(`/api/benchmarks/runs/${this.runId}/`);
+  assert.equal(theirs.body.status, "running");
+  // Tidy up: the owner stops it, so it doesn't keep the worker busy.
+  assert.equal((await this.otherApi.post(`/api/benchmarks/runs/${this.runId}/cancel/`, {})).status, 202);
+});

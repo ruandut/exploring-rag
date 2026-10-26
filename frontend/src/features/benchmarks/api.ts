@@ -143,6 +143,9 @@ export type RunSummary = {
   /** The subset of failed_cases that errored (no answer / no verdict). */
   errored_cases?: number;
   passed_cases?: number;
+  /** A stopped run (spec 0012): metrics cover only the finished cases; boundaries unchecked. */
+  partial?: boolean;
+  stopped_cases?: number;
   metrics?: Record<string, Stats>;
   boundaries?: BoundaryResult[];
 };
@@ -154,7 +157,7 @@ export type Run = {
   target_kind: "agent" | "model";
   target_label: string;
   compare_group: string | null;
-  status: "running" | "passed" | "failed";
+  status: "running" | "passed" | "failed" | "cancelled"; // cancelled = stopped (spec 0012)
   summary: RunSummary;
   created_at: string;
   finished_at: string | null;
@@ -164,7 +167,7 @@ export type CaseResult = {
   id: number;
   position: number;
   case: EvalCase;
-  status: "pending" | "done" | "failed";
+  status: "pending" | "done" | "failed" | "cancelled";
   answer: string;
   retrieved: { document: string; chunk: number; score: number; text: string }[];
   scores: Record<string, number | null>;
@@ -227,6 +230,16 @@ export function useStartRun() {
     mutationFn: (input: { suite: number; targets: Target[] }) =>
       api<Run[]>("/api/benchmarks/runs/", { method: "POST", body: JSON.stringify(input) }),
     onSuccess: (_, input) => qc.invalidateQueries({ queryKey: ["runs", input.suite] }),
+  });
+}
+
+/** Stop a running run (spec 0012). The websocket's benchmark.completed refreshes it too. */
+export function useCancelRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: number) =>
+      api<{ cancelled: boolean }>(`/api/benchmarks/runs/${runId}/cancel/`, { method: "POST" }),
+    onSettled: (_, __, runId) => qc.invalidateQueries({ queryKey: ["run", runId] }),
   });
 }
 

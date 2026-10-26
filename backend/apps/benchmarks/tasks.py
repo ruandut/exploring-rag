@@ -5,13 +5,20 @@
 
 Children never raise for a bad answer or an unreachable provider — they record the case as
 failed (so "Retry failed cases" can re-run just those) and let the parent finish.
+
+Stopping a run (spec 0012) marks its pending cases cancelled in the database and cancels the
+parent in Hatchet. A child that still starts sees its case isn't pending and exits; one
+mid-answer polls the same flag through `is_cancelled` and stops calling the model.
 """
+
+import time
 
 from django.db import close_old_connections
 from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy, Context
 from pydantic import BaseModel
 
 from apps.jobs.hatchet import get_hatchet
+from apps.providers.llm import Cancelled
 
 from . import execution, services
 from .models import BenchmarkRun, CaseResult
@@ -43,11 +50,34 @@ def benchmark_case(input: CaseInput, ctx: Context) -> dict:
     close_old_connections()
     try:
         result = CaseResult.objects.select_related("run__owner").get(pk=input.result_id)
-        execution.execute(result)
+        if result.status != CaseResult.Status.PENDING:
+            return {"status": result.status}  # the run was stopped before this case started
+        try:
+            execution.execute(result, is_cancelled=_cancel_check(input.result_id, ctx))
+        except Cancelled:
+            return {"status": CaseResult.Status.CANCELLED}
         services.record_result(result)
         return {"status": result.status, "passed": result.passed}
     finally:
         close_old_connections()
+
+
+def _cancel_check(result_id: int, ctx: Context, every: float = 1.0):
+    """is_cancelled for a case: Hatchet's own flag, or the database at most once a second
+    (it's called for every streamed token, so it mustn't query each time)."""
+    last, cancelled = 0.0, False
+
+    def check() -> bool:
+        nonlocal last, cancelled
+        if cancelled or ctx.is_cancelled:
+            return True
+        now = time.monotonic()
+        if now - last >= every:
+            last = now
+            cancelled = services.is_case_cancelled(result_id)
+        return cancelled
+
+    return check
 
 
 class RunInput(BaseModel):

@@ -16,6 +16,7 @@ doesn't know it's being timed. Every moment belongs to the phase of the latest e
 """
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -91,13 +92,16 @@ class JudgeFailed(ValueError):
     counting as n/a — a missing score must never let a run pass."""
 
 
-def execute(result: CaseResult) -> CaseResult:
-    """Ask the target, score the answer, and fill in the result (not saved here)."""
+def execute(result: CaseResult, is_cancelled: Callable[[], bool] = lambda: False) -> CaseResult:
+    """Ask the target, score the answer, and fill in the result (not saved here).
+
+    `is_cancelled` is polled while the target streams; once it's true the agent loop or
+    adapter raises `Cancelled` (spec 0012), which propagates — a stopped case has no result."""
     run = result.run
     case = result.case
     try:
         clock = PhaseClock()
-        answer, retrieved = _ask_target(run, case["question"], clock)
+        answer, retrieved = _ask_target(run, case["question"], clock, is_cancelled)
         clock.stop()
         result.answer, result.retrieved = answer, retrieved
         result.tokens = count_tokens(answer)
@@ -132,7 +136,9 @@ def _record_timings(result: CaseResult, clock: PhaseClock, *, searches: bool) ->
     )
 
 
-def _ask_target(run: BenchmarkRun, question: str, clock: PhaseClock) -> tuple[str, list[dict]]:
+def _ask_target(
+    run: BenchmarkRun, question: str, clock: PhaseClock, is_cancelled: Callable[[], bool]
+) -> tuple[str, list[dict]]:
     if run.target_kind == BenchmarkRun.TargetKind.AGENT:
         snap = run.target_snapshot
         agent = agent_services.from_snapshot(run.owner, snap)
@@ -141,6 +147,7 @@ def _ask_target(run: BenchmarkRun, question: str, clock: PhaseClock) -> tuple[st
             agent=agent,
             messages=[{"role": "user", "content": question}],
             emit=lambda event: clock.event(event.get("type", "")),
+            is_cancelled=is_cancelled,
             embedding=_snapshot_embedding(run),
             connection=(
                 provider_selectors.get_connection(run.owner, snap["connection"])
@@ -162,7 +169,10 @@ def _ask_target(run: BenchmarkRun, question: str, clock: PhaseClock) -> tuple[st
         )
         parts = []
         for event in target.adapter.stream_chat(
-            target.model, system=BARE_SYSTEM, history=[{"role": "user", "content": question}]
+            target.model,
+            system=BARE_SYSTEM,
+            history=[{"role": "user", "content": question}],
+            is_cancelled=is_cancelled,
         ):
             if isinstance(event, Thinking):
                 clock.event("agent.thinking")

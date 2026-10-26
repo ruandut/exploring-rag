@@ -1,4 +1,13 @@
-import { CheckCircle2, ChevronRight, Loader2, MinusCircle, RotateCcw, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronRight,
+  Loader2,
+  MinusCircle,
+  Play,
+  RotateCcw,
+  Square,
+  XCircle,
+} from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +24,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-import { type CaseResult, type RunDetail, useRetryFailed } from "./api";
+import { type CaseResult, type RunDetail, useCancelRun, useRetryFailed } from "./api";
 import { CASE_PASS_THRESHOLD, failingScores, metricName, PHASES } from "./metrics";
 
 const COMPARATOR = { gte: "≥", lte: "≤" } as const;
@@ -41,11 +50,19 @@ export function RunStatus({ status }: { status: RunDetail["status"] }) {
     running: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
     passed: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
     failed: "bg-destructive/15 text-destructive",
+    cancelled: "bg-muted text-muted-foreground",
   }[status];
   return (
     <Badge aria-label="Run status" className={cn("border-0 capitalize", style)}>
       {status === "running" && <Loader2 className="size-3 animate-spin" />}
-      {status === "running" ? "Running" : status === "passed" ? "Passed" : "Failed"}
+      {
+        {
+          running: "Running",
+          passed: "Passed",
+          failed: "Failed",
+          cancelled: "Stopped",
+        }[status]
+      }
     </Badge>
   );
 }
@@ -72,6 +89,8 @@ export function metricRows(run: RunDetail): string[] {
 
 export function RunView({ run, live }: { run: RunDetail; live?: { done: number; total: number } }) {
   const retry = useRetryFailed();
+  const cancel = useCancelRun();
+  const stopped = run.status === "cancelled";
   const k = run.suite_snapshot.k;
   const done = live?.done ?? run.results.filter((r) => r.status !== "pending").length;
   const total = live?.total ?? run.results.length;
@@ -112,7 +131,28 @@ export function RunView({ run, live }: { run: RunDetail; live?: { done: number; 
               </p>
             )}
           </div>
-          {run.status !== "running" && run.summary.failed_cases > 0 && (
+          {run.status === "running" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => cancel.mutate(run.id)}
+              disabled={cancel.isPending}
+            >
+              <Square className="size-4" /> Stop run
+            </Button>
+          )}
+          {stopped && (
+            // Runs the stopped (and failed) cases on the same snapshot; finished ones stay.
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => retry.mutate(run.id)}
+              disabled={retry.isPending}
+            >
+              <Play className="size-4" /> Resume
+            </Button>
+          )}
+          {!stopped && run.status !== "running" && run.summary.failed_cases > 0 && (
             <Button
               size="sm"
               variant="outline"
@@ -136,6 +176,7 @@ export function RunView({ run, live }: { run: RunDetail; live?: { done: number; 
                 >
                   {run.summary.failed_cases} failed cases
                   {!!run.summary.errored_cases && ` (${run.summary.errored_cases} errored)`}
+                  {!!run.summary.stopped_cases && ` · ${run.summary.stopped_cases} stopped`}
                 </span>
               )}
             </div>
@@ -197,7 +238,11 @@ export function RunView({ run, live }: { run: RunDetail; live?: { done: number; 
                       {metricName(b.metric, k)} {b.aggregate} {COMPARATOR[b.comparator]} {b.value}
                     </span>
                     <span className="text-muted-foreground">
-                      {b.passed === null ? "skipped (n/a)" : `actual ${fmt(b.actual)} · margin `}
+                      {b.passed === null
+                        ? run.summary.partial
+                          ? "not checked (run stopped)"
+                          : "skipped (n/a)"
+                        : `actual ${fmt(b.actual)} · margin `}
                       {b.passed !== null && (
                         <span className={cn(b.passed ? "text-emerald-600" : "text-destructive")}>
                           {b.margin! >= 0 ? "+" : ""}
@@ -220,6 +265,12 @@ export function RunView({ run, live }: { run: RunDetail; live?: { done: number; 
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Metrics</CardTitle>
+            {run.summary.partial && (
+              <CardDescription aria-label="Partial summary">
+                Partial — {run.summary.done} of {run.summary.total} cases finished before the run
+                was stopped.
+              </CardDescription>
+            )}
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <Table aria-label="Metrics">
@@ -329,11 +380,13 @@ function CaseRow({ result, k }: { result: CaseResult; k: number }) {
   const label =
     result.status === "pending"
       ? "Pending"
-      : result.status === "failed"
-        ? "Error"
-        : result.passed
-          ? "Passed"
-          : "Failed";
+      : result.status === "cancelled"
+        ? "Stopped"
+        : result.status === "failed"
+          ? "Error"
+          : result.passed
+            ? "Passed"
+            : "Failed";
   // Why it failed: an error, or the scores under the threshold (any one fails the case).
   const failing = label === "Failed" ? failingScores(result.scores) : [];
   const reason = failing.map((m) => `${metricName(m, k)} ${fmt(result.scores[m])}`).join(", ");

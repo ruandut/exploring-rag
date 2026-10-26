@@ -38,6 +38,13 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
         return Response(RunSerializer(runs, many=True).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        """Stop a running run (spec 0012). 409 if it had already finished."""
+        if not services.cancel_run(self.get_object()):
+            return Response({"detail": "The run has already finished"}, status=409)
+        return Response({"cancelled": True}, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=True, methods=["post"])
     def retry(self, request, pk=None):
         retried = services.retry_failed(self.get_object())
         return Response({"retried": retried}, status=status.HTTP_202_ACCEPTED)

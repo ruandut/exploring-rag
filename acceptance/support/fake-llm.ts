@@ -10,6 +10,8 @@
 // - Any model with "slow" in its name (e.g. "fake-slow", spec 0011) answers like the others but
 //   streams its tokens ten times more slowly, so speed comparisons are deterministic.
 // - `down = true` makes every request fail with 503, like a provider outage.
+// - `stuck = true` makes every streamed answer drip one word every few seconds (spec 0012), so a
+//   benchmark run is reliably still in flight when a spec presses Stop.
 // - Embeddings are a toy "8 topics" model (see TOPICS): texts about the same topic point the
 //   same way. Like real embedding models it ignores exact codes such as "E-4012" — which is
 //   precisely the gap keyword/hybrid search fills. A model named "…-<n>" (e.g. fake-embed-16)
@@ -127,6 +129,8 @@ export type FakeLlm = {
   googleUrl: string;
   /** Simulate an outage: every request fails with 503 while true. */
   down: boolean;
+  /** Simulate a very slow model: streamed answers drip one word every few seconds. */
+  stuck: boolean;
   /** The Ollama personality pretends no embedding model has been pulled. */
   ollamaNoEmbeddings: boolean;
   ollamaUrl: string;
@@ -260,6 +264,12 @@ export async function startFakeLlm(): Promise<FakeLlm> {
     get down() {
       return state.down;
     },
+    get stuck() {
+      return stuck;
+    },
+    set stuck(value: boolean) {
+      stuck = value;
+    },
     set down(value: boolean) {
       state.down = value;
     },
@@ -277,8 +287,13 @@ type Reply =
   | { kind: "text"; text: string; thinking?: string; delayMs: number }
   | { kind: "error"; status: number; message: string };
 
+/** `stuck` mode (one server per test run, so module state is fine). */
+let stuck = false;
+const STUCK_DELAY_MS = 3000;
+
 function decide(model: string, messages: Msg[], tools: boolean, stream: boolean): Reply {
   const reply = decideFast(model, messages, tools, stream);
+  if (stuck && stream && reply.kind === "text") return { ...reply, delayMs: STUCK_DELAY_MS };
   if (model.includes("slow") && reply.kind === "text") {
     return { ...reply, delayMs: Math.max(reply.delayMs * 10, 150) };
   }

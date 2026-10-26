@@ -119,11 +119,14 @@ export class BenchmarksPage {
       : this.page.getByRole("region", { name: /^Run / }).first();
   }
 
-  async waitFinished(region: Locator): Promise<void> {
-    await region
-      .getByLabel("Run status")
-      .filter({ hasText: /^(Passed|Failed)$/ })
-      .waitFor({ timeout: RUN_TIMEOUT });
+  /** Finished = passed, failed or stopped (spec 0012). */
+  async waitFinished(region: Locator, statuses: RegExp = /^(Passed|Failed|Stopped)$/): Promise<void> {
+    await region.getByLabel("Run status").filter({ hasText: statuses }).waitFor({ timeout: RUN_TIMEOUT });
+  }
+
+  /** Press a button in one run's panel (e.g. "Stop run", "Resume"). */
+  async pressInRun(region: Locator, name: string): Promise<void> {
+    await region.getByRole("button", { name, exact: true }).click();
   }
 
   caseRow(region: Locator, question: string): Locator {

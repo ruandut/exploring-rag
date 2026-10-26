@@ -134,7 +134,7 @@ How domain apps plug into the platform without the platform importing them:
 | `sync-embedding` (rag) | create / edit / re-index an embedding | queues only the documents gained (all on a re-index); 1 at a time per embedding | ✅ |
 | `index-document` (rag) | `route-document` / `sync-embedding` | parse (cached) → chunk → embed → store in one embedding; stale versions discarded; 3 per user; retries 2; user errors non-retryable | ✅ |
 | `agent-run` (agents) | websocket `agent.ask` (via chat) | streamed tool-calling loop; no retries; 2 per user; checks `ctx.is_cancelled` per token; no-tools fallback | ✅ |
-| `benchmark-run` → `benchmark-case` (benchmarks) | Benchmarks → Run / Retry failed cases | child runs via `run_many`, 2 per user, children record failures instead of raising; parent aggregates + checks boundaries | ✅ |
+| `benchmark-run` → `benchmark-case` (benchmarks) | Benchmarks → Run / Retry failed cases / Stop run / Resume | child runs via `run_many`, 2 per user, children record failures instead of raising; parent aggregates + checks boundaries; Stop cancels the parent in Hatchet and flags the cases in Postgres (0012) | ✅ |
 | `generate-testset` (evals) | Benchmarks → Generate | LLM writes Q/A/evidence + refusal cases from sampled chunks | 📝 0007 |
 
 ## RAG pipeline (where each step will live)
@@ -215,6 +215,7 @@ optional boundary (`metric · aggregate · comparator · value`) holds.
 | 2026-10-24 | Fake OpenAI-compatible server for specs | Deterministic, free, offline; exercises the real HTTP path through the openai SDK. |
 | 2026-10-24 | Fernet-encrypted, write-only API keys | A DB dump doesn't leak keys; the browser never receives them (only the last 4). |
 | 2026-10-26 | Benchmark timings measured from the agent's existing events | The benchmark's `emit` callback timestamps `agent.*` events, so the agent loop and the websocket contract don't change; boundaries are rounded once so phases sum to the total exactly. Judge time is kept apart so it never counts as the target's speed. |
+| 2026-10-26 | Stopping a benchmark: database flag first, Hatchet cancel second | Sync Hatchet tasks can't be killed mid-call, and cancel may arrive late; a `cancelled` status that every case checks (at start, and via `is_cancelled` while streaming) is reliable, and results are saved only while a case is still pending. |
 | 2026-10-24 | Re-index needs explicit confirmation (409 `reindex_required`) | Embedding/chunking changes invalidate every vector; the user must opt in. |
 | 2026-10-24 | Unsized `vector` column + partial HNSW index per common dimension | Each user brings their own embedding model; HNSW requires a fixed size, so one index per size (384/768/1024/1536) covers the common models and other sizes fall back to exact search. |
 | 2026-10-24 | Approximate token counting | Avoids model-specific tokenizers and runtime vocabulary downloads; accurate enough for chunk sizing. |

@@ -107,6 +107,11 @@
   Now any case below the pass threshold fails the run, "failed cases" counts the same cases the
   chips do (errored ones noted separately), "Retry failed cases" re-asks all of them, and
   existing runs were re-judged by a migration.
+- **0012 Stop a benchmark run — Done.** A running run has **Stop run**: cases in flight stop
+  calling the model, queued ones never start, finished ones keep their results, and the run is
+  marked **Stopped** (never passed — its metrics are labelled partial and its boundaries
+  aren't checked). **Resume** re-runs only what didn't finish. The database flag is the
+  source of truth; cancelling the parent in Hatchet is the fast path.
 - **0013 Chat setup card — Done.** A new chat opens on a **Set up this chat** card (agent,
   embedding, model — pre-filled with the last chat's) and **Start chat** swaps it for the
   message bar. The bar is one row again: its pickers moved behind an info button (**Chat
