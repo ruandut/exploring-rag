@@ -1,0 +1,60 @@
+{"kind": "qa", "question": "What did God create in the beginning?", "reference_answer": "The heaven and the earth (Genesis 1:1).", "relevant_documents": ["kjv.pdf"], "evidence": "In the beginning God created the heaven and the earth"}
+{"kind": "qa", "question": "What did God create on the first day?", "reference_answer": "Light — God said, Let there be light (Genesis 1:3).", "relevant_documents": ["kjv.pdf"], "evidence": "Let there be light: and there was light"}
+{"kind": "qa", "question": "In whose image was man created?", "reference_answer": "In God's own image (Genesis 1:27).", "relevant_documents": ["kjv.pdf"], "evidence": "So God created man in his own image"}
+{"kind": "qa", "question": "What did God do on the seventh day of creation?", "reference_answer": "He rested from all his work (Genesis 2:2).", "relevant_documents": ["kjv.pdf"], "evidence": "he rested on the seventh day from all his work"}
+{"kind": "qa", "question": "What was the first man formed from?", "reference_answer": "The dust of the ground (Genesis 2:7).", "relevant_documents": ["kjv.pdf"], "evidence": "formed man of the dust of the ground"}
+{"kind": "qa", "question": "What was the first woman made from?", "reference_answer": "A rib taken from the man (Genesis 2:22).", "relevant_documents": ["kjv.pdf"], "evidence": "the rib, which the LORD God had taken from man"}
+{"kind": "qa", "question": "Which tree were Adam and Eve told not to eat from?", "reference_answer": "The tree of the knowledge of good and evil (Genesis 2:17).", "relevant_documents": ["kjv.pdf"], "evidence": "the tree of the knowledge of good and evil"}
+{"kind": "qa", "question": "What did God call the dry land?", "reference_answer": "Earth (Genesis 1:10).", "relevant_documents": ["kjv.pdf"], "evidence": "God called the dry land Earth"}
+{"kind": "qa", "question": "Where was Jesus born?", "reference_answer": "In Bethlehem of Judaea (Matthew 2:1).", "relevant_documents": ["kjv.pdf"], "evidence": "Jesus was born in Bethlehem of Judaea"}
+{"kind": "qa", "question": "Who baptized Jesus, and where?", "reference_answer": "John the Baptist, in the Jordan (Matthew 3:13).", "relevant_documents": ["kjv.pdf"], "evidence": "Then cometh Jesus from Galilee to Jordan unto John, to be baptized of him"}
+{"kind": "qa", "question": "How long did Jesus fast in the wilderness?", "reference_answer": "Forty days and forty nights (Matthew 4:2).", "relevant_documents": ["kjv.pdf"], "evidence": "fasted forty days and forty nights"}
+{"kind": "qa", "question": "What was Jesus' first miracle?", "reference_answer": "Turning water into wine at a wedding in Cana of Galilee (John 2:11).", "relevant_documents": ["kjv.pdf"], "evidence": "This beginning of miracles did Jesus in Cana of Galilee"}
+{"kind": "qa", "question": "How much was Judas paid to betray Jesus?", "reference_answer": "Thirty pieces of silver (Matthew 26:15).", "relevant_documents": ["kjv.pdf"], "evidence": "thirty pieces of silver"}
+{"kind": "qa", "question": "Where did Jesus pray on the night he was arrested?", "reference_answer": "In Gethsemane (Matthew 26:36).", "relevant_documents": ["kjv.pdf"], "evidence": "a place called Gethsemane"}
+{"kind": "qa", "question": "Who denied Jesus three times?", "reference_answer": "Peter, before the cock crowed (Matthew 26:34, 75).", "relevant_documents": ["kjv.pdf"], "evidence": "thou shalt deny me thrice"}
+{"kind": "qa", "question": "Where was Jesus crucified?", "reference_answer": "At Golgotha, the place of a skull (Matthew 27:33).", "relevant_documents": ["kjv.pdf"], "evidence": "a place called Golgotha, that is to say, a place of a skull"}
+{"kind": "qa", "question": "Which prisoner did Pilate release instead of Jesus?", "reference_answer": "Barabbas (Matthew 27:26).", "relevant_documents": ["kjv.pdf"], "evidence": "released he Barabbas unto them"}
+{"kind": "qa", "question": "What did Jesus call the first and great commandment?", "reference_answer": "Love the Lord thy God with all thy heart, soul and mind (Matthew 22:37-38).", "relevant_documents": ["kjv.pdf"], "evidence": "Thou shalt love the Lord thy God with all thy heart"}
+{"kind": "qa", "question": "To whom did the risen Jesus appear first, according to Mark?", "reference_answer": "Mary Magdalene (Mark 16:9).", "relevant_documents": ["kjv.pdf"], "evidence": "he appeared first to Mary Magdalene"}
+{"kind": "qa", "question": "How much food did the disciples have before Jesus fed the five thousand?", "reference_answer": "Five loaves and two fishes (Matthew 14:17).", "relevant_documents": ["kjv.pdf"], "evidence": "five loaves, and two fishes"}
+{"kind": "qa", "question": "Where was Saul going when he met Jesus on the road?", "reference_answer": "Damascus (Acts 9:3).", "relevant_documents": ["kjv.pdf"], "evidence": "as he journeyed, he came near Damascus"}
+{"kind": "qa", "question": "What did Jesus say to Saul on the road to Damascus?", "reference_answer": "Saul, Saul, why persecutest thou me? (Acts 9:4).", "relevant_documents": ["kjv.pdf"], "evidence": "Saul, Saul, why persecutest thou me"}
+{"kind": "qa", "question": "What city was Paul from?", "reference_answer": "Tarsus, a city in Cilicia (Acts 21:39).", "relevant_documents": ["kjv.pdf"], "evidence": "a Jew of Tarsus"}
+{"kind": "qa", "question": "Who was sent out with Saul on his first missionary journey?", "reference_answer": "Barnabas (Acts 13:2).", "relevant_documents": ["kjv.pdf"], "evidence": "Separate me Barnabas and Saul for the work"}
+{"kind": "qa", "question": "What did the man in Paul's vision at Troas ask?", "reference_answer": "Come over into Macedonia, and help us (Acts 16:9).", "relevant_documents": ["kjv.pdf"], "evidence": "Come over into Macedonia, and help us"}
+{"kind": "qa", "question": "What happened while Paul and Silas were in prison at Philippi?", "reference_answer": "A great earthquake shook the prison and the doors opened (Acts 16:26).", "relevant_documents": ["kjv.pdf"], "evidence": "so that the foundations of the prison were shaken"}
+{"kind": "qa", "question": "What inscription did Paul find on an altar in Athens?", "reference_answer": "TO THE UNKNOWN GOD (Acts 17:23).", "relevant_documents": ["kjv.pdf"], "evidence": "TO THE UNKNOWN GOD"}
+{"kind": "qa", "question": "On which island was Paul shipwrecked?", "reference_answer": "Melita (Malta) (Acts 28:1).", "relevant_documents": ["kjv.pdf"], "evidence": "the island was called Melita"}
+{"kind": "qa", "question": "What happened when a viper bit Paul on the island?", "reference_answer": "He shook it off into the fire and suffered no harm (Acts 28:5).", "relevant_documents": ["kjv.pdf"], "evidence": "he shook off the beast into the fire"}
+{"kind": "qa", "question": "To whom did Paul appeal when on trial before Festus?", "reference_answer": "Caesar (Acts 25:11).", "relevant_documents": ["kjv.pdf"], "evidence": "I appeal unto Caesar"}
+{"kind": "qa", "question": "Who anointed David as king?", "reference_answer": "The prophet Samuel, with a horn of oil (1 Samuel 16:13).", "relevant_documents": ["kjv.pdf"], "evidence": "Samuel took the horn of oil, and anointed him"}
+{"kind": "qa", "question": "Who was David's father?", "reference_answer": "Jesse the Bethlehemite (1 Samuel 16:1).", "relevant_documents": ["kjv.pdf"], "evidence": "Jesse the Bethlehemite"}
+{"kind": "qa", "question": "How did David defeat Goliath?", "reference_answer": "With a sling and a stone that struck Goliath in the forehead (1 Samuel 17:49).", "relevant_documents": ["kjv.pdf"], "evidence": "smote the Philistine in his forehead"}
+{"kind": "qa", "question": "Where was Goliath from?", "reference_answer": "Gath (1 Samuel 17:4).", "relevant_documents": ["kjv.pdf"], "evidence": "Goliath, of Gath"}
+{"kind": "qa", "question": "Which son of Saul was David's close friend?", "reference_answer": "Jonathan (1 Samuel 18:1).", "relevant_documents": ["kjv.pdf"], "evidence": "the soul of Jonathan was knit with the soul of David"}
+{"kind": "qa", "question": "Whose wife was Bathsheba when David first saw her?", "reference_answer": "Uriah the Hittite (2 Samuel 11:3).", "relevant_documents": ["kjv.pdf"], "evidence": "the wife of Uriah the Hittite"}
+{"kind": "qa", "question": "What did the prophet Nathan say to David after the parable of the ewe lamb?", "reference_answer": "Thou art the man (2 Samuel 12:7).", "relevant_documents": ["kjv.pdf"], "evidence": "Thou art the man"}
+{"kind": "qa", "question": "How was Absalom caught before he died?", "reference_answer": "His head caught in the boughs of an oak (2 Samuel 18:9).", "relevant_documents": ["kjv.pdf"], "evidence": "his head caught hold of the oak"}
+{"kind": "qa", "question": "Which son did David promise would reign after him?", "reference_answer": "Solomon (1 Kings 1:30).", "relevant_documents": ["kjv.pdf"], "evidence": "Solomon thy son shall reign after me"}
+{"kind": "qa", "question": "How does Psalm 23 begin?", "reference_answer": "The LORD is my shepherd; I shall not want.", "relevant_documents": ["kjv.pdf"], "evidence": "is my shepherd; I shall not want"}
+{"kind": "qa", "question": "According to Proverbs 9:10, the fear of the LORD is the beginning of what?", "reference_answer": "Wisdom.", "relevant_documents": ["kjv.pdf"], "evidence": "The fear of the LORD is the beginning of wisdom"}
+{"kind": "qa", "question": "According to Proverbs 1:7, the fear of the LORD is the beginning of what?", "reference_answer": "Knowledge — but fools despise wisdom and instruction (Proverbs 1:7).", "relevant_documents": ["kjv.pdf"], "evidence": "The fear of the Lord is the beginning of knowledge"}
+{"kind": "qa", "question": "What does Ecclesiastes call the whole duty of man?", "reference_answer": "Fear God, and keep his commandments (Ecclesiastes 12:13).", "relevant_documents": ["kjv.pdf"], "evidence": "Fear God, and keep his commandments: for this is the whole duty of man"}
+{"kind": "qa", "question": "According to Proverbs 8:13, what is the fear of the LORD?", "reference_answer": "To hate evil (Proverbs 8:13).", "relevant_documents": ["kjv.pdf"], "evidence": "The fear of the LORD is to hate evil"}
+{"kind": "qa", "question": "How does Psalm 19 describe the fear of the LORD?", "reference_answer": "Clean, enduring for ever (Psalm 19:9).", "relevant_documents": ["kjv.pdf"], "evidence": "The fear of the LORD is clean, enduring for ever"}
+{"kind": "qa", "question": "Whom did Jesus say we should fear?", "reference_answer": "Him who is able to destroy both soul and body in hell, rather than those who can only kill the body (Matthew 10:28).", "relevant_documents": ["kjv.pdf"], "evidence": "fear him which is able to destroy both soul and body in hell"}
+{"kind": "qa", "question": "How is Job described at the start of the book of Job?", "reference_answer": "Perfect and upright, one that feared God and eschewed evil (Job 1:1).", "relevant_documents": ["kjv.pdf"], "evidence": "one that feared God, and eschewed evil"}
+{"kind": "qa", "question": "What does 1 John say casts out fear?", "reference_answer": "Perfect love (1 John 4:18).", "relevant_documents": ["kjv.pdf"], "evidence": "perfect love casteth out fear"}
+{"kind": "refusal", "question": "What was the name of Noah's wife?"}
+{"kind": "refusal", "question": "Exactly how many wise men visited the infant Jesus?"}
+{"kind": "refusal", "question": "Was the forbidden fruit in Eden an apple?"}
+{"kind": "refusal", "question": "What were the names of the two thieves crucified with Jesus?"}
+{"kind": "refusal", "question": "In exactly which year was Jesus born?"}
+{"kind": "refusal", "question": "What colour were Jesus' eyes?"}
+{"kind": "refusal", "question": "How did the apostle Paul die?"}
+{"kind": "refusal", "question": "What was the name of Lot's wife?"}
+{"kind": "refusal", "question": "Which verse says that God helps those who help themselves?"}
+{"kind": "refusal", "question": "What does the Bible say about smartphones?"}
+{"kind": "refusal", "question": "What is the capital of Australia?"}
+{"kind": "refusal", "question": "Who won the 2030 FIFA World Cup?"}
