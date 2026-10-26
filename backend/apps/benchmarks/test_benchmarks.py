@@ -270,3 +270,164 @@ def test_an_unreadable_judge_reply_fails_the_case(db, user, setup, monkeypatch):
     first = run.results.get(position=0)
     assert first.status == "failed" and "empty reply" in first.error
     assert run.status == "failed"  # a missing score never lets a run pass
+
+
+# --- timings (spec 0011) ----------------------------------------------------------------------
+
+
+class FakeClock:
+    """Drives execution._now(): time only moves when a test says so."""
+
+    def __init__(self, monkeypatch):
+        self.now = 100.0
+        monkeypatch.setattr(execution, "_now", lambda: self.now)
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def timed_agent(monkeypatch, clock, answer="The refund window is 30 days."):
+    """An agent that waits 0.1 s, searches 0.25 s, waits 0.05 s, reasons 0.2 s, writes 0.4 s."""
+
+    def run(**kwargs):
+        emit = kwargs["emit"]
+        clock.advance(0.1)
+        emit({"type": "agent.tool_call", "tool": "search_documents", "args": {"query": "q"}})
+        clock.advance(0.25)
+        emit({"type": "agent.retrieval", "chunks": []})
+        clock.advance(0.05)
+        emit({"type": "agent.thinking", "text": "Reading. "})
+        clock.advance(0.2)
+        emit({"type": "agent.token", "text": answer})
+        clock.advance(0.4)
+        return RunResult(answer=answer, retrieved=[])
+
+    monkeypatch.setattr(execution.runner, "run", run)
+
+
+def test_phase_clock_rounds_boundaries_so_phases_add_up(monkeypatch):
+    clock = FakeClock(monkeypatch)
+    phases = execution.PhaseClock()
+    for event, wait in [("agent.thinking", 0.0004), ("agent.token", 0.0004), ("agent.token", 1)]:
+        clock.advance(wait)
+        phases.event(event)
+    clock.advance(0.0004)
+    phases.stop()
+    ms = phases.phases_ms()
+    assert sum(ms.values()) == phases.ms(phases.ended)
+    assert phases.first_token is not None
+
+
+def test_at_0011_01_a_case_records_where_its_time_went(db, user, setup, monkeypatch):
+    clock = FakeClock(monkeypatch)
+    timed_agent(monkeypatch, clock)
+    fake_judge(monkeypatch)
+    real_score = execution._score
+
+    def slow_judge(*args):
+        clock.advance(2.0)
+        return real_score(*args)
+
+    monkeypatch.setattr(execution, "_score", slow_judge)
+    [run] = services.start_runs(user, setup.suite, [{"kind": "agent", "agent": setup.agent.pk}])
+    run = run_all(run)
+    qa = run.results.get(position=0)
+    assert (qa.waiting_ms, qa.search_ms, qa.reasoning_ms, qa.writing_ms) == (150, 250, 200, 400)
+    assert qa.latency_ms == 1000 and qa.ttft_ms == 600
+    assert qa.judge_ms == 2000  # kept apart: not part of latency
+    assert qa.tokens_per_second == round(qa.tokens / 0.4, 2)
+
+
+def test_at_0011_02_phases_add_up_to_the_total(db, user, setup, monkeypatch):
+    clock = FakeClock(monkeypatch)
+    timed_agent(monkeypatch, clock)
+    fake_judge(monkeypatch)
+    [run] = services.start_runs(user, setup.suite, [{"kind": "agent", "agent": setup.agent.pk}])
+    run = run_all(run)
+    for r in run.results.all():
+        assert r.waiting_ms + r.search_ms + r.reasoning_ms + r.writing_ms == r.latency_ms
+
+
+def test_at_0011_03_a_bare_model_has_no_search_time(db, user, setup, monkeypatch):
+    from apps.providers.llm import Thinking
+
+    fake_judge(monkeypatch)
+    bare = FakeAdapter(
+        *[[Thinking("Hmm. "), Text("I don't "), Text("know."), Done("end")] for _ in range(2)]
+    )
+    monkeypatch.setattr("apps.providers.services.build_adapter", lambda *a, **k: bare)
+    [run] = services.start_runs(
+        user, setup.suite, [{"kind": "model", "connection": None, "model": "fake-chat"}]
+    )
+    run = run_all(run)
+    qa = run.results.get(position=0)
+    assert qa.search_ms is None
+    assert qa.waiting_ms + qa.reasoning_ms + qa.writing_ms == qa.latency_ms
+    assert run.summary["metrics"]["search_time"]["mean"] is None  # n/a, not 0
+
+
+def test_an_empty_answer_has_no_speed(db, user, setup, monkeypatch):
+    fake_agent(monkeypatch, answer="")
+    fake_judge(monkeypatch)
+    [run] = services.start_runs(user, setup.suite, [{"kind": "agent", "agent": setup.agent.pk}])
+    run = run_all(run)
+    assert run.results.get(position=0).tokens_per_second is None
+
+
+def test_at_0011_04_05_summary_has_speed_metrics_and_a_speed_boundary(db, user, setup, monkeypatch):
+    clock = FakeClock(monkeypatch)
+    timed_agent(monkeypatch, clock)
+    fake_judge(monkeypatch)
+    eval_services.save_suite(
+        user,
+        instance=setup.suite,
+        data={
+            "boundaries": [
+                {
+                    "metric": "tokens_per_second",
+                    "aggregate": "p50",
+                    "comparator": "gte",
+                    "value": 1,
+                },
+            ]
+        },
+    )
+    [run] = services.start_runs(user, setup.suite, [{"kind": "agent", "agent": setup.agent.pk}])
+    run = run_all(run)
+    metrics = run.summary["metrics"]
+    assert metrics["writing_time"]["mean"] == 0.4  # seconds
+    assert metrics["search_time"]["mean"] == 0.25
+    assert metrics["tokens_per_second"]["p50"] > 1
+    assert run.summary["boundaries"][0]["passed"] is True
+
+
+def test_at_0011_07_model_speed_pools_runs_by_the_answering_model(
+    db, user, other_user, setup, monkeypatch, auth_api
+):
+    def finished(target, tps, latency_ms=1000, status="done"):
+        [run] = services.start_runs(user, setup.suite, [target])
+        run.results.update(status=status, latency_ms=latency_ms, ttft_ms=200, tokens_per_second=tps)
+        run.status = BenchmarkRun.Status.PASSED
+        run.save()
+        return run
+
+    finished({"kind": "model", "model": "fake-chat"}, tps=50)
+    # An agent with no model of its own answers with the default provider's chat model.
+    finished({"kind": "agent", "agent": setup.agent.pk}, tps=40)
+    finished({"kind": "model", "model": "fake-slow"}, tps=5)
+    finished({"kind": "model", "model": "fake-broken"}, tps=None, status="failed")
+    still_running = finished({"kind": "model", "model": "fake-busy"}, tps=99)
+    still_running.status = BenchmarkRun.Status.RUNNING
+    still_running.save()
+
+    rows = auth_api.get("/api/benchmarks/speed/").json()
+    assert [(r["model"], r["runs"], r["cases"]) for r in rows] == [
+        ("Default provider · fake-chat", 2, 4),
+        ("Default provider · fake-slow", 1, 2),
+    ]
+    assert rows[0]["tokens_per_second_p50"] == 40
+    assert rows[0]["ttft_p50"] == 0.2 and rows[0]["latency_p95"] == 1.0
+
+    bob = APIClient()
+    bob.force_authenticate(other_user)
+    assert bob.get("/api/benchmarks/speed/").json() == []

@@ -7,6 +7,8 @@
 // - Judge prompts ("You are grading…") get JSON scores: model "fake-judge-0.8" always scores 0.8;
 //   otherwise refusal_rate is 1 only if the answer admits it doesn't know, and the rest score 1.
 // - Bare-model prompts: "fake-inventor" confidently makes things up; others say "I don't know".
+// - Any model with "slow" in its name (e.g. "fake-slow", spec 0011) answers like the others but
+//   streams its tokens ten times more slowly, so speed comparisons are deterministic.
 // - `down = true` makes every request fail with 503, like a provider outage.
 // - Embeddings are a toy "8 topics" model (see TOPICS): texts about the same topic point the
 //   same way. Like real embedding models it ignores exact codes such as "E-4012" — which is
@@ -23,7 +25,7 @@ import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
 export const FAKE_EMBEDDING_DIMENSIONS = 8;
-export const FAKE_MODELS = ["fake-chat", "fake-embed", "fake-local", "fake-notools"];
+export const FAKE_MODELS = ["fake-chat", "fake-embed", "fake-local", "fake-notools", "fake-slow"];
 
 /** The Ollama personality's models, as `/api/show` describes them. */
 const OLLAMA_MODELS: Record<string, { capabilities: string[]; dims?: number }> = {
@@ -276,6 +278,14 @@ type Reply =
   | { kind: "error"; status: number; message: string };
 
 function decide(model: string, messages: Msg[], tools: boolean, stream: boolean): Reply {
+  const reply = decideFast(model, messages, tools, stream);
+  if (model.includes("slow") && reply.kind === "text") {
+    return { ...reply, delayMs: Math.max(reply.delayMs * 10, 150) };
+  }
+  return reply;
+}
+
+function decideFast(model: string, messages: Msg[], tools: boolean, stream: boolean): Reply {
   const last = messages.at(-1);
   if (tools && model.includes("notools")) {
     return { kind: "error", status: 400, message: `registry.ollama.ai/library/${model} does not support tools` };

@@ -64,6 +64,15 @@ class CaseResult(models.Model):
     ttft_ms = models.PositiveIntegerField(null=True)
     latency_ms = models.PositiveIntegerField(null=True)
     tokens = models.PositiveIntegerField(null=True)
+    # Where the answer's time went (spec 0011). The four phases add up to latency_ms exactly;
+    # search_ms is None for a bare model (it can't search). Judge time is kept apart so it
+    # never counts as the target's speed.
+    waiting_ms = models.PositiveIntegerField(null=True)
+    search_ms = models.PositiveIntegerField(null=True)
+    reasoning_ms = models.PositiveIntegerField(null=True)
+    writing_ms = models.PositiveIntegerField(null=True)
+    judge_ms = models.PositiveIntegerField(null=True)
+    tokens_per_second = models.FloatField(null=True)  # tokens ÷ writing time
     passed = models.BooleanField(null=True)
     error = models.TextField(blank=True)
 

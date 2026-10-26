@@ -91,7 +91,7 @@ An app may import only from lower layers, and only the ones listed for it in
 | `chat` | domain | conversations (agent + embedding + model) + messages, delete (cancels the active run), `agent.ask`/`agent.cancel` websocket handlers | ✅ 0005, 0009, 0010 |
 | `scoring` | domain | **how to score**: retrieval metrics, LLM-judge rubrics, aggregation, boundaries — no models | ✅ 0006 |
 | `evals` | domain | **what to test**: suites, cases (relevant documents + evidence), metrics, boundaries, judge, JSONL | ✅ 0006 |
-| `benchmarks` | domain | **running tests**: runs, case results, Hatchet fan-out, live progress, comparisons, retries | ✅ 0006 |
+| `benchmarks` | domain | **running tests**: runs, case results, per-phase timings, Hatchet fan-out, live progress, comparisons, retries, model speed | ✅ 0006, 0011 |
 
 How domain apps plug into the platform without the platform importing them:
 - **Websocket**: `@ws_handler("agent.ask")` in the app, imported from `AppConfig.ready()`.
@@ -213,6 +213,7 @@ Boundaries (`metric · aggregate · comparator · value`) decide pass/fail for a
 | 2026-10-24 | Executable specs: Markdown with Gherkin run by Cucumber.js + Playwright | Specs stay readable documents *and* become the acceptance suite, so docs can't drift from behaviour. Cucumber reads `.feature.md` natively; TypeScript step defs run via Node type stripping. |
 | 2026-10-24 | Fake OpenAI-compatible server for specs | Deterministic, free, offline; exercises the real HTTP path through the openai SDK. |
 | 2026-10-24 | Fernet-encrypted, write-only API keys | A DB dump doesn't leak keys; the browser never receives them (only the last 4). |
+| 2026-10-26 | Benchmark timings measured from the agent's existing events | The benchmark's `emit` callback timestamps `agent.*` events, so the agent loop and the websocket contract don't change; boundaries are rounded once so phases sum to the total exactly. Judge time is kept apart so it never counts as the target's speed. |
 | 2026-10-24 | Re-index needs explicit confirmation (409 `reindex_required`) | Embedding/chunking changes invalidate every vector; the user must opt in. |
 | 2026-10-24 | Unsized `vector` column + partial HNSW index per common dimension | Each user brings their own embedding model; HNSW requires a fixed size, so one index per size (384/768/1024/1536) covers the common models and other sizes fall back to exact search. |
 | 2026-10-24 | Approximate token counting | Avoids model-specific tokenizers and runtime vocabulary downloads; accurate enough for chunk sizing. |

@@ -29,6 +29,21 @@ export const SELECTABLE = [
   "citation_accuracy",
 ];
 
+/** Which way is better, for colouring deltas. Answer tokens are neither: more isn't worse. */
+export function direction(id: string): "higher" | "lower" | "neutral" {
+  if (id === "tokens") return "neutral";
+  const m = METRICS.find((x) => x.id === id);
+  return !m ? "neutral" : m.higherIsBetter ? "higher" : "lower";
+}
+
+/** The parts of an answer's time (spec 0011), in the order they usually happen. */
+export const PHASES = [
+  { id: "waiting_time", field: "waiting_ms", name: "Waiting" },
+  { id: "search_time", field: "search_ms", name: "Searching" },
+  { id: "reasoning_time", field: "reasoning_ms", name: "Reasoning" },
+  { id: "writing_time", field: "writing_ms", name: "Writing" },
+] as const;
+
 /** "Recall@k" → "Recall@5" for the suite's k. */
 export function metricName(id: string, k = 5): string {
   const m = METRICS.find((x) => x.id === id);
@@ -206,6 +221,63 @@ export const METRICS: Metric[] = [
     name: "Tokens",
     group: "operational",
     question: "Prompt + completion tokens per case.",
+    needs: "—",
+    scoring: "measured",
+    higherIsBetter: false,
+  },
+  {
+    id: "tokens_per_second",
+    name: "Tokens per second",
+    group: "operational",
+    question:
+      "How fast does the model write once it starts? Answer tokens ÷ writing time — free of network, search and reasoning.",
+    needs: "—",
+    scoring: "measured",
+    higherIsBetter: true,
+  },
+  {
+    id: "waiting_time",
+    name: "Waiting",
+    group: "operational",
+    question: "Time before the model outputs anything: network plus reading its prompt.",
+    needs: "—",
+    scoring: "measured",
+    higherIsBetter: false,
+  },
+  {
+    id: "search_time",
+    name: "Searching",
+    group: "operational",
+    question:
+      "Time spent searching documents, including embedding the query. n/a for a bare model.",
+    needs: "—",
+    scoring: "measured",
+    higherIsBetter: false,
+  },
+  {
+    id: "reasoning_time",
+    name: "Reasoning",
+    group: "operational",
+    question: "Time a reasoning model spends thinking before (or between) answering.",
+    needs: "—",
+    scoring: "measured",
+    higherIsBetter: false,
+  },
+  {
+    id: "writing_time",
+    name: "Writing",
+    group: "operational",
+    question: "Time from the first answer token to the last.",
+    needs: "—",
+    scoring: "measured",
+    higherIsBetter: false,
+  },
+  {
+    id: "judge_time",
+    name: "Judge time",
+    group: "operational",
+    question:
+      "How long the judge took to score — shown apart, never counted as the target's speed.",
     needs: "—",
     scoring: "measured",
     higherIsBetter: false,

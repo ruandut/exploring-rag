@@ -32,6 +32,11 @@ const BOUNDARY_METRICS = [
   "ttft",
   "latency_total",
   "tokens",
+  "tokens_per_second",
+  "waiting_time",
+  "search_time",
+  "reasoning_time",
+  "writing_time",
   "error_rate",
 ];
 

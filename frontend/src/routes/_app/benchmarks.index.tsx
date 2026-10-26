@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useSaveSuite, useSuites } from "@/features/benchmarks/api";
 import { MetricCatalog } from "@/features/benchmarks/metric-catalog";
 import { metricName } from "@/features/benchmarks/metrics";
+import { ModelSpeed } from "@/features/benchmarks/model-speed";
 import { FolderDialog } from "@/features/library/folder-dialog";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
@@ -66,6 +67,8 @@ function BenchmarksPage() {
           </CardContent>
         </Card>
       )}
+
+      <ModelSpeed />
 
       <div>
         <h2 className="mb-1 text-lg font-semibold">Metric catalog</h2>

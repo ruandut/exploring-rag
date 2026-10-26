@@ -16,12 +16,24 @@ import {
 import { cn } from "@/lib/utils";
 
 import { type CaseResult, type RunDetail, useRetryFailed } from "./api";
-import { metricName } from "./metrics";
+import { metricName, PHASES } from "./metrics";
 
 const COMPARATOR = { gte: "≥", lte: "≤" } as const;
 
 export function fmt(value: number | null | undefined, digits = 2): string {
   return value === null || value === undefined ? "n/a" : value.toFixed(digits);
+}
+
+/** Seconds with one decimal, or "n/a". Takes milliseconds. */
+export function secs(ms: number | null | undefined): string {
+  return ms === null || ms === undefined ? "n/a" : `${(ms / 1000).toFixed(2)} s`;
+}
+
+/** "1m 12s" / "8s" — how long a whole run took. */
+export function duration(from: string, to: string): string {
+  const total = Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 1000));
+  const m = Math.floor(total / 60);
+  return m ? `${m}m ${total % 60}s` : `${total}s`;
 }
 
 export function RunStatus({ status }: { status: RunDetail["status"] }) {
@@ -47,6 +59,12 @@ export function metricRows(run: RunDetail): string[] {
     "ttft",
     "latency_total",
     "tokens",
+    "tokens_per_second",
+    "waiting_time",
+    "search_time",
+    "reasoning_time",
+    "writing_time",
+    "judge_time",
     "error_rate",
   ];
   return order.filter((m, i) => ids.includes(m) && order.indexOf(m) === i);
@@ -70,6 +88,13 @@ export function RunView({ run, live }: { run: RunDetail; live?: { done: number; 
             <CardDescription>
               {run.suite_name} · version {run.suite_snapshot.version} ·{" "}
               {new Date(run.created_at).toLocaleString()}
+              {run.finished_at && (
+                // Start to finish, queueing included: the time you actually waited.
+                <span aria-label="Run duration">
+                  {" "}
+                  · Took {duration(run.created_at, run.finished_at)}
+                </span>
+              )}
             </CardDescription>
             {run.target_kind === "agent" && (
               <p aria-label="Run embedding" className="text-xs text-muted-foreground">
@@ -223,6 +248,8 @@ export function RunView({ run, live }: { run: RunDetail; live?: { done: number; 
         </Card>
       )}
 
+      {run.summary.metrics && <TimingCard run={run} />}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Cases</CardTitle>
@@ -239,6 +266,60 @@ export function RunView({ run, live }: { run: RunDetail; live?: { done: number; 
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+const PHASE_COLOURS = ["bg-chart-1", "bg-chart-2", "bg-chart-3", "bg-chart-4"];
+
+/** One stacked bar: the mean time per phase, so the bottleneck is visible at a glance. */
+function TimingCard({ run }: { run: RunDetail }) {
+  const metrics = run.summary.metrics ?? {};
+  const parts = PHASES.map((p, i) => ({
+    ...p,
+    seconds: metrics[p.id]?.mean ?? null,
+    colour: PHASE_COLOURS[i],
+  }));
+  const total = parts.reduce((sum, p) => sum + (p.seconds ?? 0), 0);
+  // Runs from before spec 0011 have no phases.
+  if (parts.every((p) => p.seconds === null)) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Timing</CardTitle>
+        <CardDescription>
+          Mean time per case, split by where it went. The judge's time isn't included.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-2">
+        <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted" aria-hidden>
+          {total > 0 &&
+            parts.map((p) =>
+              p.seconds ? (
+                <div
+                  key={p.id}
+                  className={p.colour}
+                  style={{ width: `${(p.seconds / total) * 100}%` }}
+                />
+              ) : null,
+            )}
+        </div>
+        <ul aria-label="Time per phase" className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+          {parts.map((p) => {
+            const value = p.seconds === null ? "n/a" : `${p.seconds.toFixed(2)} s`;
+            return (
+              <li
+                key={p.id}
+                aria-label={`${p.name} ${value}`}
+                className="flex items-center gap-1.5"
+              >
+                <span className={cn("size-2.5 rounded-sm", p.colour)} />
+                {p.name} <span className="tabular-nums text-muted-foreground">{value}</span>
+              </li>
+            );
+          })}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -330,9 +411,23 @@ function CaseRow({ result, k }: { result: CaseResult; k: number }) {
               ))}
             </ul>
           </div>
-          <div className="text-xs text-muted-foreground">
-            First token {result.ttft_ms ?? "—"} ms · total {result.latency_ms ?? "—"} ms · ~
-            {result.tokens ?? "—"} answer tokens
+          <div className="grid gap-1 text-xs text-muted-foreground">
+            <div aria-label="Case speed">
+              First token {secs(result.ttft_ms)} · total {secs(result.latency_ms)} · ~
+              {result.tokens ?? "—"} answer tokens ·{" "}
+              {result.tokens_per_second === null ? "n/a" : `${result.tokens_per_second.toFixed(1)}`}{" "}
+              tokens/s
+            </div>
+            <ul aria-label="Case timing" className="flex flex-wrap gap-x-3">
+              {PHASES.map((p) => (
+                <li key={p.id} aria-label={p.name}>
+                  {p.name} {secs(result[p.field])}
+                </li>
+              ))}
+            </ul>
+            <div aria-label="Case judge time">
+              Judge {secs(result.judge_ms)} (not counted above)
+            </div>
           </div>
         </div>
       )}

@@ -169,6 +169,14 @@ export type CaseResult = {
   ttft_ms: number | null;
   latency_ms: number | null;
   tokens: number | null;
+  // Where the time went (spec 0011): the four phases add up to latency_ms; search_ms is null
+  // for a bare model. judge_ms is kept apart from the target's speed.
+  waiting_ms: number | null;
+  search_ms: number | null;
+  reasoning_ms: number | null;
+  writing_ms: number | null;
+  judge_ms: number | null;
+  tokens_per_second: number | null;
   passed: boolean | null;
   error: string;
 };
@@ -229,6 +237,23 @@ export function useRetryFailed() {
 }
 
 /** Live updates: refetch a run whenever the worker reports progress on it. */
+/** One row per model that answered: its speed across all your finished runs (spec 0011). */
+export type ModelSpeed = {
+  model: string;
+  runs: number;
+  cases: number;
+  ttft_p50: number | null;
+  latency_p95: number | null;
+  tokens_per_second_p50: number | null;
+};
+
+export function useModelSpeed() {
+  return useQuery({
+    queryKey: ["model-speed"],
+    queryFn: () => api<ModelSpeed[]>("/api/benchmarks/speed/"),
+  });
+}
+
 export function useRunEvents(onProgress?: (runId: number, done: number, total: number) => void) {
   const qc = useQueryClient();
   useSocketEvents((e) => {
@@ -236,6 +261,9 @@ export function useRunEvents(onProgress?: (runId: number, done: number, total: n
     if (e.type === "benchmark.case" || e.type === "benchmark.completed") {
       void qc.invalidateQueries({ queryKey: ["run", e.run_id] });
     }
-    if (e.type === "benchmark.completed") void qc.invalidateQueries({ queryKey: ["runs"] });
+    if (e.type === "benchmark.completed") {
+      void qc.invalidateQueries({ queryKey: ["runs"] });
+      void qc.invalidateQueries({ queryKey: ["model-speed"] });
+    }
   });
 }

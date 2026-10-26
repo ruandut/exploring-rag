@@ -4,7 +4,7 @@
 // MUST update this file in the same change. Bump LAST_UPDATED when you do.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const LAST_UPDATED = "2026-10-25 · spec 0008 Anthropic and Google";
+export const LAST_UPDATED = "2026-10-26 · spec 0011 Benchmark timings";
 
 /** live = works end-to-end today · demo = wired up with fake data · planned = spec drafted */
 export type Status = "live" | "demo" | "planned";
@@ -77,7 +77,7 @@ export const COMPONENTS: Component[] = [
   {
     name: "Benchmarks",
     tech: "Django apps scoring + evals + benchmarks · Hatchet fan-out",
-    role: "Eval suites, metrics and pass/fail boundaries; runs a suite against an agent or a bare model (any connection) and stores per-case scores.",
+    role: "Eval suites, metrics and pass/fail boundaries; runs a suite against an agent or a bare model (any connection) and stores per-case scores, where the time went, and each model's speed across runs.",
     runs: "benchmark-run parent task → one benchmark-case child per case (2 at a time per user)",
     status: "live",
   },
@@ -181,7 +181,7 @@ export const DJANGO_APPS: DjangoApp[] = [
   {
     name: "benchmarks",
     layer: "domain",
-    owns: "Running tests: runs, case results, Hatchet fan-out, live progress, comparisons",
+    owns: "Running tests: runs, case results, timings, Hatchet fan-out, live progress, comparisons, model speed",
     dependsOn: "providers, library, rag, agents, evals, scoring",
     status: "live",
     spec: "0006",
@@ -193,10 +193,12 @@ export const EVAL_FLOW = [
   "benchmarks freezes snapshots of the suite and the target's config, creates a run and starts the benchmark-run Hatchet task.",
   "benchmark-run fans out one benchmark-case child per case (2 at a time per user).",
   "Each child asks the target (the agent loop, without a socket) and records the answer, retrieved chunks, latency and tokens.",
+  "Timings come from the agent.* events the loop already emits: each moment belongs to the phase of the latest event — waiting (before any output), searching (tool_call → retrieval), reasoning (thinking), writing (tokens). The phases add up to the total exactly; tokens per second = answer tokens ÷ writing time; the judge is timed separately (spec 0011).",
   "scoring computes the metrics: retrieval ones exactly (relevance = right document + evidence snippet, not chunk numbers), judge ones with one rubric call each at temperature 0, storing the reasoning.",
   "Every finished case sends benchmark.case + benchmark.progress over the websocket — the page updates live.",
   "The parent aggregates (mean, p95), checks every applicable boundary (n/a metrics are skipped), and marks the run passed or failed.",
-  "Retry failed cases replays them on Hatchet; compare two runs side by side with per-metric deltas.",
+  "Retry failed cases replays them on Hatchet; compare two runs side by side with per-metric deltas, coloured by each metric's direction (lower latency is better).",
+  "Model speed pools every finished case by the model that answered (agent and bare runs together) — typical first token, slow-case total and typical tokens per second.",
 ];
 
 export type Step = {

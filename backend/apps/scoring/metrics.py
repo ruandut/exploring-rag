@@ -35,6 +35,14 @@ METRICS: dict[str, Metric] = {
         Metric("ttft", "Time to first token (s)", "operational", ("qa", "refusal"), False),
         Metric("latency_total", "Total latency (s)", "operational", ("qa", "refusal"), False),
         Metric("tokens", "Answer tokens", "operational", ("qa", "refusal"), False),
+        # Speed and where the time went (spec 0011). Tokens per second = answer tokens ÷
+        # writing time: the model's raw generation speed, free of network and search.
+        Metric("tokens_per_second", "Tokens per second", "operational", ("qa", "refusal")),
+        Metric("waiting_time", "Waiting (s)", "operational", ("qa", "refusal"), False),
+        Metric("search_time", "Searching (s)", "operational", ("qa", "refusal"), False),
+        Metric("reasoning_time", "Reasoning (s)", "operational", ("qa", "refusal"), False),
+        Metric("writing_time", "Writing (s)", "operational", ("qa", "refusal"), False),
+        Metric("judge_time", "Judge time (s)", "operational", ("qa", "refusal"), False),
         Metric("error_rate", "Error rate", "operational", ("qa", "refusal"), False),
     ]
 }

@@ -21,7 +21,17 @@ from apps.scoring.metrics import METRICS
 
 from .models import BenchmarkRun, CaseResult
 
-OPERATIONAL = {"ttft": "ttft_ms", "latency_total": "latency_ms", "tokens": "tokens"}
+OPERATIONAL = {
+    "ttft": "ttft_ms",
+    "latency_total": "latency_ms",
+    "tokens": "tokens",
+    "tokens_per_second": "tokens_per_second",
+    "waiting_time": "waiting_ms",
+    "search_time": "search_ms",
+    "reasoning_time": "reasoning_ms",
+    "writing_time": "writing_ms",
+    "judge_time": "judge_ms",
+}
 
 
 class InvalidTarget(Exception):
@@ -51,6 +61,8 @@ def describe_target(user, target: dict) -> tuple[str, str, dict]:
             "connection": connection.pk if connection else None,
             "connection_name": source,
             "model": model,
+            # The model that actually answers, resolved now — what Model speed groups by.
+            "model_label": _model_label(user, source, model),
         }
         label = f"{agent.name} · {embedding.name if embedding else 'no embedding'}"
         return BenchmarkRun.TargetKind.AGENT, label, snap
@@ -62,10 +74,19 @@ def describe_target(user, target: dict) -> tuple[str, str, dict]:
             "connection": connection.pk if connection else None,
             "connection_name": source,
             "model": model,
+            "model_label": f"{source} · {model}",
         }
         return BenchmarkRun.TargetKind.MODEL, f"{source} · {model} (bare)", snap
 
     raise InvalidTarget("A target is an agent or a bare model")
+
+
+def _model_label(user, source: str, model: str) -> str:
+    """E.g. "Default provider · fake-chat" — an agent's empty model resolved to the default."""
+    if not model:
+        config = provider_selectors.get_provider_config(user)
+        model = config.chat_model if config else ""
+    return f"{source} · {model}"
 
 
 def embedding_snapshot(index: EmbeddingIndex | None) -> dict | None:
@@ -207,7 +228,7 @@ def finalize(run: BenchmarkRun) -> BenchmarkRun:
         metrics[metric_id] = aggregate.summarise(values)
     for metric_id, field in OPERATIONAL.items():
         values = [getattr(r, field) for r in scored if getattr(r, field) is not None]
-        if metric_id in ("ttft", "latency_total"):
+        if field.endswith("_ms"):
             values = [v / 1000 for v in values]  # report seconds
         metrics[metric_id] = aggregate.summarise(values)
     error_rate = len(failed) / len(results) if results else 0.0

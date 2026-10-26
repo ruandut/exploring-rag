@@ -65,5 +65,6 @@ Run one spec, even a draft: `cd acceptance && vp run test -- ../specs/0005-agent
 | [0008](0008-anthropic-and-google.feature.md) | Providers: Anthropic and Google | Done |
 | [0009](0009-delete-chat.feature.md) | Delete a chat | Done |
 | [0010](0010-embeddings.feature.md) | Embeddings: named indexes, model picker, chat with agent + embedding + model | Done |
+| [0011](0011-benchmark-timings.feature.md) | Benchmark timings: phase breakdown, tokens/s, model speed | Done |
 
 The in-app System Design page reads this folder directly, so its spec list is always current.

@@ -93,3 +93,12 @@
   "No tools", custom ids, hints) everywhere a model is chosen. Today's data migrated into
   "My documents" with no re-index. Choices made while building: an "All documents" option, a
   "Not indexed" document status. Specs 0003–0006 and 0009 reworded to match.
+
+## 2026-10-26
+- **0011 Benchmark timings — Done** (your request: "how fast certain models operate"). Each case
+  now records where its time went — waiting, searching, reasoning, writing (adding up to the
+  total exactly) — plus tokens per second and the judge's time, kept apart. Runs show these as
+  metrics (usable in boundaries), how long the run took, and a timing bar; the Benchmarks page
+  gains a **Model speed** table across all runs. Fixed the side-by-side colouring, which
+  showed the slower model's bigger latency as green. Measured from the agent's existing
+  events — no change to the agent loop or the websocket contract.

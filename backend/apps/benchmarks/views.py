@@ -1,12 +1,12 @@
 from rest_framework import mixins, status, viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from apps.evals import selectors as eval_selectors
 from apps.evals.models import EvalSuite
 
-from . import services
+from . import selectors, services
 from .models import BenchmarkRun
 from .serializers import RunDetailSerializer, RunSerializer, StartRunSerializer
 
@@ -41,3 +41,9 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
     def retry(self, request, pk=None):
         retried = services.retry_failed(self.get_object())
         return Response({"retried": retried}, status=status.HTTP_202_ACCEPTED)
+
+
+@api_view(["GET"])
+def model_speed(request):
+    """One row per model: how fast it answered across all your finished runs (spec 0011)."""
+    return Response(selectors.model_speed(request.user))

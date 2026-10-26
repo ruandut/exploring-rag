@@ -18,6 +18,12 @@ class CaseResultSerializer(serializers.ModelSerializer):
             "ttft_ms",
             "latency_ms",
             "tokens",
+            "waiting_ms",
+            "search_ms",
+            "reasoning_ms",
+            "writing_ms",
+            "judge_ms",
+            "tokens_per_second",
             "passed",
             "error",
         ]

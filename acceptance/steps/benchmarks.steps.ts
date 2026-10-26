@@ -405,3 +405,155 @@ Then("the judge's requests went to {string}", async function (this: AppWorld, mo
     `No chat request for ${model}`,
   );
 });
+
+// --- timings (specs/0011-benchmark-timings.feature.md) --------------------------------------
+
+const SECONDS = /^\d+\.\d\d s$/;
+
+async function finishedRun(world: AppWorld) {
+  const page = new BenchmarksPage(world.page);
+  const run = page.run$();
+  await page.waitFinished(run);
+  return { page, run };
+}
+
+Then(
+  "I see its time to first token, total latency and tokens per second",
+  async function (this: AppWorld) {
+    const speed = await new BenchmarksPage(this.page).run$().getByLabel("Case speed").textContent();
+    assert.match(
+      (speed ?? "").replace(/\s+/g, " "),
+      /First token \d+\.\d\d s · total \d+\.\d\d s · ~\d+ answer tokens · \d+\.\d tokens\/s/,
+    );
+  },
+);
+
+Then(
+  "I see how long it spent waiting, searching, reasoning and writing",
+  async function (this: AppWorld) {
+    const timing = new BenchmarksPage(this.page).run$().getByLabel("Case timing");
+    for (const phase of ["Waiting", "Searching", "Reasoning", "Writing"]) {
+      const text = await timing.getByRole("listitem", { name: phase }).textContent();
+      assert.match(text ?? "", new RegExp(`^${phase} \\d+\\.\\d\\d s$`), `${phase}: ${text}`);
+    }
+  },
+);
+
+Then("I see the judge's time shown separately", async function (this: AppWorld) {
+  const judge = await new BenchmarksPage(this.page).run$().getByLabel("Case judge time").textContent();
+  assert.match(judge ?? "", /^Judge \d+\.\d\d s/);
+});
+
+Then(
+  "for every case, waiting, searching, reasoning and writing add up to its total latency",
+  async function (this: AppWorld) {
+    await finishedRun(this);
+    // Exact milliseconds come from the API: the page rounds each phase to 0.01 s.
+    const run = (await this.api.get(`/api/benchmarks/runs/${this.runId}/`)).body;
+    for (const r of run.results) {
+      const sum = r.waiting_ms + r.search_ms + r.reasoning_ms + r.writing_ms;
+      assert.equal(sum, r.latency_ms, `${r.case.question}: ${sum} ≠ ${r.latency_ms}`);
+    }
+  },
+);
+
+Then("its searching time shows {string}", async function (this: AppWorld, value: string) {
+  const timing = new BenchmarksPage(this.page).run$().getByLabel("Case timing");
+  assert.equal(await timing.getByRole("listitem", { name: "Searching" }).textContent(), `Searching ${value}`);
+});
+
+Then("the run summary shows the mean of {string}", async function (this: AppWorld, name: string) {
+  const { run } = await finishedRun(this);
+  const mean = await run.getByRole("table", { name: "Metrics" }).getByRole("row", { name }).getByRole("cell").nth(1)
+    .textContent();
+  assert.match(mean ?? "", /^\d+\.\d\d$/, `${name} mean: ${mean}`);
+});
+
+Then("the run header shows how long the run took", async function (this: AppWorld) {
+  const { run } = await finishedRun(this);
+  assert.match((await run.getByLabel("Run duration").textContent()) ?? "", /Took (\d+m )?\d+s/);
+});
+
+Then(
+  "the timing bar shows the time spent waiting, searching, reasoning and writing",
+  async function (this: AppWorld) {
+    const { run } = await finishedRun(this);
+    const phases = run.getByRole("list", { name: "Time per phase" });
+    for (const phase of ["Waiting", "Searching", "Reasoning", "Writing"]) {
+      await phases.getByRole("listitem", { name: new RegExp(`^${phase} \\d+\\.\\d\\d s$`) }).waitFor();
+    }
+  },
+);
+
+Given("{string} has the boundary {string}", async function (this: AppWorld, suite: string, boundary: string) {
+  await ensureSuite(this, suite);
+  await patchSuite(this, suite, { boundaries: [parseBoundary(boundary)] });
+});
+
+Then("the boundary {string} shows ✓", async function (this: AppWorld, boundary: string) {
+  const { run } = await finishedRun(this);
+  await run.getByRole("listitem", { name: boundary }).getByText("✓").waitFor({ state: "attached" });
+});
+
+When(
+  "I compare {string} on the bare model {string} with the bare model {string}",
+  async function (this: AppWorld, suite: string, first: string, second: string) {
+    const page = new BenchmarksPage(this.page);
+    await page.openSuite(await ensureSuite(this, suite));
+    const bare = "Bare model · Default provider";
+    this.runId = await page.run(bare, first, { target: bare, model: second });
+  },
+);
+
+Then(
+  "the {string} delta is marked {string}",
+  async function (this: AppWorld, metric: string, verdict: string) {
+    const page = new BenchmarksPage(this.page);
+    const runs = this.page.getByRole("region", { name: /^Run / });
+    await runs.nth(1).waitFor();
+    for (const run of await runs.all()) await page.waitFinished(run);
+    const row = this.page.getByRole("table", { name: "Comparison" }).getByRole("row", { name: metric });
+    await row.getByLabel(`Delta, ${verdict}`).waitFor();
+  },
+);
+
+async function runToTheEnd(world: AppWorld, suite: string, target: string, model: string) {
+  await runFromUi(world, suite, target, model);
+  await finishedRun(world);
+}
+
+Given(
+  "I have run {string} against the bare model {string} from my default provider",
+  async function (this: AppWorld, suite: string, model: string) {
+    await runToTheEnd(this, suite, "Bare model · Default provider", model);
+  },
+);
+
+Given(
+  "I have run {string} against the agent {string} using the model {string}",
+  async function (this: AppWorld, suite: string, agent: string, model: string) {
+    await runToTheEnd(this, suite, agent, model);
+  },
+);
+
+function speedRow(world: AppWorld, model: string) {
+  // Rows are named "<connection> · <model>".
+  return world.page.getByRole("table", { name: "Model speed" }).getByRole("row", { name: new RegExp(` · ${model}$`) });
+}
+
+Then(
+  "the model speed table lists {string} with {int} runs and {string} with {int} run",
+  async function (this: AppWorld, a: string, runsA: number, b: string, runsB: number) {
+    for (const [model, runs] of [[a, runsA], [b, runsB]] as const) {
+      assert.equal(await speedRow(this, model).getByLabel("Runs").textContent(), String(runs), model);
+    }
+  },
+);
+
+Then("{string} is listed above {string}", async function (this: AppWorld, above: string, below: string) {
+  const names = await this.page.getByRole("table", { name: "Model speed" }).getByRole("row").evaluateAll((rows) =>
+    rows.map((r) => r.getAttribute("aria-label") ?? ""),
+  );
+  const at = (m: string) => names.findIndex((n) => n.endsWith(` · ${m}`));
+  assert.ok(at(above) >= 0 && at(above) < at(below), `Order: ${names.join(", ")}`);
+});

@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { type RunDetail, useRun, useRunEvents } from "@/features/benchmarks/api";
-import { metricName } from "@/features/benchmarks/metrics";
+import { direction, metricName } from "@/features/benchmarks/metrics";
 import { fmt, metricRows, RunView } from "@/features/benchmarks/run-view";
 import { cn } from "@/lib/utils";
 
@@ -66,8 +66,9 @@ function Comparison({ a, b }: { a: RunDetail; b: RunDetail }) {
       <CardHeader>
         <CardTitle>Side by side</CardTitle>
         <CardDescription>
-          Δ = {b.target_label} minus {a.target_label}. n/a means the metric doesn't apply (a bare
-          model retrieves nothing).
+          Δ = {b.target_label} minus {a.target_label}. Green is better and red is worse — for
+          timings, lower is better. n/a means the metric doesn't apply (a bare model retrieves
+          nothing).
         </CardDescription>
       </CardHeader>
       <CardContent className="overflow-x-auto">
@@ -85,17 +86,25 @@ function Comparison({ a, b }: { a: RunDetail; b: RunDetail }) {
               const va = a.summary.metrics?.[m]?.mean ?? null;
               const vb = b.summary.metrics?.[m]?.mean ?? null;
               const delta = va !== null && vb !== null ? vb - va : null;
+              // Colour by the metric's direction: a bigger latency is worse, not better.
+              const dir = direction(m);
+              const verdict =
+                delta === null || delta === 0 || dir === "neutral"
+                  ? null
+                  : delta > 0 === (dir === "higher")
+                    ? "better"
+                    : "worse";
               return (
                 <TableRow key={m} aria-label={metricName(m, k)}>
                   <TableCell>{metricName(m, k)}</TableCell>
                   <TableCell className="text-right tabular-nums">{fmt(va)}</TableCell>
                   <TableCell className="text-right tabular-nums">{fmt(vb)}</TableCell>
                   <TableCell
-                    aria-label="Delta"
+                    aria-label={verdict ? `Delta, ${verdict}` : "Delta"}
                     className={cn(
                       "text-right tabular-nums",
-                      delta !== null && delta > 0 && "text-emerald-600",
-                      delta !== null && delta < 0 && "text-destructive",
+                      verdict === "better" && "text-emerald-600",
+                      verdict === "worse" && "text-destructive",
                     )}
                   >
                     {delta === null ? "n/a" : `${delta >= 0 ? "+" : ""}${delta.toFixed(2)}`}
