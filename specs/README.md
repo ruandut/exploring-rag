@@ -66,5 +66,6 @@ Run one spec, even a draft: `cd acceptance && vp run test -- ../specs/0005-agent
 | [0009](0009-delete-chat.feature.md) | Delete a chat | Done |
 | [0010](0010-embeddings.feature.md) | Embeddings: named indexes, model picker, chat with agent + embedding + model | Done |
 | [0011](0011-benchmark-timings.feature.md) | Benchmark timings: phase breakdown, tokens/s, model speed | Done |
+| [0013](0013-chat-setup-card.feature.md) | Chat setup card and a one-row message bar | Done |
 
 The in-app System Design page reads this folder directly, so its spec list is always current.

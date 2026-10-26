@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Cpu, Layers } from "lucide-react";
+import { Bot, ChevronDown, Cpu, Layers } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,6 @@ import { type Connection, modelLabel } from "@/features/agents/api";
 import type { Embedding } from "@/features/embeddings/api";
 import { useModelCatalogue } from "@/features/models/api";
 import { ModelBadges } from "@/features/models/model-picker";
-import { cn } from "@/lib/utils";
 
 /** What answers a chat: a connection (null = the default provider) and a model ("" = its chat
  *  model). Picked next to the agent and the embedding (spec 0010). */
@@ -32,8 +31,49 @@ export type ModelChoice = { connection: number | null; model: string };
 
 const NONE = "none";
 
-const TRIGGER =
-  "max-w-48 border-0 bg-transparent text-muted-foreground shadow-none hover:bg-muted hover:text-foreground dark:bg-transparent dark:hover:bg-muted";
+// Pickers sit in a labelled form (the new-chat card, the composer's options popover), so they
+// fill their row like a normal field rather than looking like toolbar chips.
+const TRIGGER = "w-full min-w-0 justify-start font-normal *:data-[slot=select-value]:flex-1";
+
+export type AgentOption = { id: string; name: string; description: string };
+
+export function AgentPicker({
+  agents,
+  value,
+  onChange,
+}: {
+  agents: AgentOption[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const agent = agents.find((a) => a.id === value);
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger aria-label="Agent" title={agent?.description} className={TRIGGER}>
+        <Bot className="size-3.5" />
+        {/* Just the name in the trigger; the description only shows in the menu. */}
+        <SelectValue placeholder="Choose an agent">{agent?.name}</SelectValue>
+      </SelectTrigger>
+      <SelectContent align="end">
+        {agents.map((a) => (
+          <SelectItem key={a.id} value={a.id}>
+            <span className="flex flex-col">
+              <span>{a.name}</span>
+              <span className="text-xs text-muted-foreground">{a.description}</span>
+            </span>
+          </SelectItem>
+        ))}
+        <SelectSeparator />
+        <Link
+          to="/agents"
+          className="block rounded-sm px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          Manage agents…
+        </Link>
+      </SelectContent>
+    </Select>
+  );
+}
 
 export function EmbeddingPicker({
   embeddings,
@@ -50,7 +90,7 @@ export function EmbeddingPicker({
       value={value === null ? NONE : String(value)}
       onValueChange={(v) => onChange(v === NONE ? null : Number(v))}
     >
-      <SelectTrigger size="sm" aria-label="Embedding" className={TRIGGER}>
+      <SelectTrigger aria-label="Embedding" className={TRIGGER}>
         <Layers className="size-3.5" />
         <SelectValue placeholder="Embedding">{current?.name ?? "No embedding"}</SelectValue>
       </SelectTrigger>
@@ -117,15 +157,17 @@ export function ModelPicker({
       <PopoverTrigger asChild>
         <Button
           type="button"
-          variant="ghost"
-          size="sm"
+          variant="outline"
           role="combobox"
           aria-label="Model"
           aria-expanded={open}
-          className={cn(TRIGGER, "h-8 font-normal")}
+          className={TRIGGER}
         >
           <Cpu className="size-3.5" />
-          <span className="truncate">{modelLabel(connName, value.model, defaultChatModel)}</span>
+          <span className="flex-1 truncate text-left">
+            {modelLabel(connName, value.model, defaultChatModel)}
+          </span>
+          <ChevronDown className="size-4 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[min(26rem,90vw)] p-0" align="end">

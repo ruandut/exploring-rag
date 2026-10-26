@@ -107,3 +107,7 @@
   Now any case below the pass threshold fails the run, "failed cases" counts the same cases the
   chips do (errored ones noted separately), "Retry failed cases" re-asks all of them, and
   existing runs were re-judged by a migration.
+- **0013 Chat setup card — Done.** A new chat opens on a **Set up this chat** card (agent,
+  embedding, model — pre-filled with the last chat's) and **Start chat** swaps it for the
+  message bar. The bar is one row again: its pickers moved behind an info button (**Chat
+  options**). Existing conversations open straight on the bar. Frontend only.

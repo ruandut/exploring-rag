@@ -14,7 +14,13 @@ import {
   useDeleteConversation,
 } from "@/features/chat/api";
 import { AssistantMessage } from "@/features/chat/assistant-message";
-import { EmbeddingPicker, type ModelChoice, ModelPicker } from "@/features/chat/chat-pickers";
+import { ChatOptionsButton, ChatSetupCard } from "@/features/chat/chat-options";
+import {
+  AgentPicker,
+  EmbeddingPicker,
+  type ModelChoice,
+  ModelPicker,
+} from "@/features/chat/chat-pickers";
 import { Composer } from "@/features/chat/composer";
 import { DeleteConversationDialog } from "@/features/chat/delete-conversation-dialog";
 import { type AssistantTurn, conversationReducer } from "@/features/chat/conversation";
@@ -114,6 +120,15 @@ function ChatPage() {
   // for one of them afterwards; following it would navigate back to a chat that's gone.
   const deleted = useRef(new Set<number>());
   const [toDelete, setToDelete] = useState<ConversationSummary | null>(null);
+  // A new chat first shows the setup card (agent, embedding, model); "Start chat" swaps it for
+  // the composer. Reset whenever the open chat changes (React's "adjust state when a prop
+  // changes" pattern — during render, not in an effect), so every new chat asks again.
+  const [setupDone, setSetupDone] = useState(false);
+  const [setupFor, setSetupFor] = useState(search.c);
+  if (setupFor !== search.c) {
+    setSetupFor(search.c);
+    setSetupDone(false);
+  }
   const deleteConversation = useDeleteConversation();
 
   useEffect(() => {
@@ -242,6 +257,25 @@ function ChatPage() {
     });
   }
 
+  const pickers = {
+    agent: <AgentPicker agents={options} value={effectiveAgent} onChange={setAgentId} />,
+    embedding: (
+      <EmbeddingPicker
+        embeddings={embeddings.data ?? []}
+        value={embeddingGone ? null : effectiveEmbedding}
+        onChange={(id) => pick({ embeddingId: id, embeddingGone: false })}
+      />
+    ),
+    model: (
+      <ModelPicker
+        connections={connections.data ?? []}
+        defaultChatModel={provider.data?.chat_model ?? ""}
+        value={effectiveModel}
+        onChange={(model) => pick({ model })}
+      />
+    ),
+  };
+
   const composer = (autoFocus: boolean) => (
     <Composer
       draft={draft}
@@ -251,27 +285,14 @@ function ChatPage() {
       streaming={!!active}
       canStop={!!active?.runId}
       connected={status === "open"}
-      agents={options}
-      agentId={effectiveAgent}
-      onAgent={setAgentId}
-      pickers={
-        <>
-          <EmbeddingPicker
-            embeddings={embeddings.data ?? []}
-            value={embeddingGone ? null : effectiveEmbedding}
-            onChange={(id) => pick({ embeddingId: id, embeddingGone: false })}
-          />
-          <ModelPicker
-            connections={connections.data ?? []}
-            defaultChatModel={provider.data?.chat_model ?? ""}
-            value={effectiveModel}
-            onChange={(model) => pick({ model })}
-          />
-        </>
-      }
+      agentName={agentName}
+      options={<ChatOptionsButton {...pickers} />}
       autoFocus={autoFocus}
     />
   );
+
+  // Only a brand-new chat (no id, nothing said yet) asks for its settings up front.
+  const needsSetup = search.c === undefined && turns.length === 0 && !setupDone;
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -339,16 +360,20 @@ function ChatPage() {
         {turns.length === 0 ? (
           // Empty chat: greeting and composer centred, like Claude's start screen.
           <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 pb-[12vh]">
-            <div className="text-center">
-              <h2 className="text-2xl font-semibold tracking-tight">
-                {options.find((a) => a.id === effectiveAgent)?.name ?? "Ask the agent"}
-              </h2>
+            <div className="w-full max-w-2xl text-center">
+              <h2 className="text-2xl font-semibold tracking-tight">{agentName}</h2>
               <p className="mt-1.5 text-sm text-muted-foreground">
                 Watch it think, search your documents and answer — live.
               </p>
               <div className="mt-2">{settingsLine}</div>
             </div>
-            <div className="w-full max-w-2xl">{composer(true)}</div>
+            <div className="w-full max-w-2xl">
+              {needsSetup ? (
+                <ChatSetupCard {...pickers} onStart={() => setSetupDone(true)} />
+              ) : (
+                composer(true)
+              )}
+            </div>
           </div>
         ) : (
           <>
