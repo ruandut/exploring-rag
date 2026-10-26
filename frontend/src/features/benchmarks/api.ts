@@ -138,7 +138,10 @@ export type BoundaryResult = Boundary & {
 export type RunSummary = {
   done: number;
   total: number;
+  /** Cases that didn't pass: errored or scored below the case threshold (matches the chips). */
   failed_cases: number;
+  /** The subset of failed_cases that errored (no answer / no verdict). */
+  errored_cases?: number;
   passed_cases?: number;
   metrics?: Record<string, Stats>;
   boundaries?: BoundaryResult[];

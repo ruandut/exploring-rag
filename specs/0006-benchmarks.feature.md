@@ -62,7 +62,10 @@ better, or just slower.
 ## Boundaries
 `metric · aggregate · comparator · value`, e.g. `faithfulness · mean · ≥ · 0.85`,
 `recall@5 · mean · ≥ · 0.8`, `latency_total · p95 · ≤ · 8s`. A run **passes** only if every
-applicable boundary holds; results show each one ✓/✗ with its margin.
+case passed (scored at or above the case threshold, no error) **and** every applicable boundary
+holds; results show each boundary ✓/✗ with its margin. Boundaries are optional; cases aren't, so
+the run verdict always agrees with the case list. "Failed cases" counts errored *and*
+below-threshold cases, and "Retry failed cases" re-asks all of them (decided 2026-10-26).
 
 ## User experience
 1. **Benchmarks** — suites with their latest run (pass/fail, headline metrics).
@@ -210,3 +213,7 @@ applicable boundary holds; results show each one ✓/✗ with its margin.
   with n/a scores. Fixed: 2000-token budget, score salvage from cut-off JSON, and an unreadable
   verdict now fails the case (retryable). Re-run: every score judged, run passed.
 - Tests: 12 scenarios here; 33 new pytest tests across the three apps.
+- **2026-10-26 fix:** a run with no boundaries said "Passed" while 45 of 84 cases showed
+  "Failed" chips — the verdict and "failed cases" only counted *errored* cases. Now a
+  below-threshold case fails the run too, `failed_cases` matches the chips (`errored_cases` is
+  the errored subset), retry re-asks every failed case, and migration 0004 re-judged old runs.

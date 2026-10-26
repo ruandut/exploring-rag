@@ -16,7 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { type CaseResult, type RunDetail, useRetryFailed } from "./api";
-import { metricName, PHASES } from "./metrics";
+import { CASE_PASS_THRESHOLD, failingScores, metricName, PHASES } from "./metrics";
 
 const COMPARATOR = { gte: "≥", lte: "≤" } as const;
 
@@ -135,6 +135,7 @@ export function RunView({ run, live }: { run: RunDetail; live?: { done: number; 
                   className={cn(run.summary.failed_cases > 0 && "text-destructive")}
                 >
                   {run.summary.failed_cases} failed cases
+                  {!!run.summary.errored_cases && ` (${run.summary.errored_cases} errored)`}
                 </span>
               )}
             </div>
@@ -333,6 +334,9 @@ function CaseRow({ result, k }: { result: CaseResult; k: number }) {
         : result.passed
           ? "Passed"
           : "Failed";
+  // Why it failed: an error, or the scores under the threshold (any one fails the case).
+  const failing = label === "Failed" ? failingScores(result.scores) : [];
+  const reason = failing.map((m) => `${metricName(m, k)} ${fmt(result.scores[m])}`).join(", ");
 
   return (
     <li aria-label={result.case.question} className="rounded-lg border">
@@ -343,7 +347,10 @@ function CaseRow({ result, k }: { result: CaseResult; k: number }) {
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm"
       >
         <ChevronRight className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")} />
-        <span className="min-w-0 flex-1 truncate">{result.case.question}</span>
+        <span className="grid min-w-0 flex-1">
+          <span className="truncate">{result.case.question}</span>
+          {reason && <span className="truncate text-xs text-destructive">{reason}</span>}
+        </span>
         {result.latency_ms !== null && (
           <span className="text-xs text-muted-foreground tabular-nums">
             {(result.latency_ms / 1000).toFixed(1)} s
@@ -364,6 +371,13 @@ function CaseRow({ result, k }: { result: CaseResult; k: number }) {
       {open && (
         <div className="grid gap-3 border-t px-3 py-3 text-sm">
           {result.error && <p className="text-destructive">{result.error}</p>}
+          {reason && (
+            <p aria-label="Why the case failed" className="text-destructive">
+              Failed because {reason} {failing.length === 1 ? "is" : "are"} below{" "}
+              {fmt(CASE_PASS_THRESHOLD)} — every score must reach {fmt(CASE_PASS_THRESHOLD)} for a
+              case to pass.
+            </p>
+          )}
           <div>
             <div className="text-xs font-medium text-muted-foreground">Answer</div>
             <p aria-label="Case answer" className="whitespace-pre-wrap">
@@ -402,7 +416,11 @@ function CaseRow({ result, k }: { result: CaseResult; k: number }) {
             <div className="text-xs font-medium text-muted-foreground">Scores</div>
             <ul aria-label="Case scores" className="grid gap-1">
               {Object.entries(result.scores).map(([m, v]) => (
-                <li key={m} aria-label={metricName(m, k)} className="text-xs">
+                <li
+                  key={m}
+                  aria-label={metricName(m, k)}
+                  className={cn("text-xs", failing.includes(m) && "text-destructive")}
+                >
                   <span className="font-medium">
                     {metricName(m, k)}: {fmt(v)}
                   </span>{" "}

@@ -196,6 +196,29 @@ def test_a_boundary_fails_with_its_margin(db, user, setup, monkeypatch):
     assert run.status == "failed"
 
 
+def test_a_case_below_threshold_fails_the_run_even_without_boundaries(
+    db, user, setup, monkeypatch, no_hatchet, django_capture_on_commit_callbacks
+):
+    # Regression: a run with no boundaries said "Passed" while its case list showed failures.
+    eval_services.save_suite(user, instance=setup.suite, data={"boundaries": []})
+    fake_agent(monkeypatch)
+    fake_judge(monkeypatch, score=0.2)  # below the case pass threshold, but not an error
+    [run] = services.start_runs(user, setup.suite, [{"kind": "agent", "agent": setup.agent.pk}])
+    run = run_all(run)
+    assert run.results.get(position=0).passed is False
+    assert run.summary["failed_cases"] == 2 and run.summary["errored_cases"] == 0
+    assert run.summary["passed_cases"] == 0
+    assert run.summary["metrics"]["error_rate"]["mean"] == 0.0
+    assert run.status == "failed"
+
+    # "Retry failed cases" re-asks it too — real models and judges vary between attempts.
+    with django_capture_on_commit_callbacks(execute=True):
+        assert services.retry_failed(run) == 2
+    fake_judge(monkeypatch)
+    run = run_all(BenchmarkRun.objects.get(pk=run.pk))
+    assert run.summary["failed_cases"] == 0 and run.status == "passed"
+
+
 def test_bare_models_get_na_retrieval_and_skipped_boundaries(db, user, setup, monkeypatch):
     fake_judge(monkeypatch)
 

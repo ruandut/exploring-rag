@@ -44,6 +44,19 @@ export const PHASES = [
   { id: "writing_time", field: "writing_ms", name: "Writing" },
 ] as const;
 
+/**
+ * A case passes only if every score it got is at least this (n/a scores are ignored).
+ * Mirrors CASE_PASS_THRESHOLD in backend/apps/scoring/metrics.py — change both together.
+ */
+export const CASE_PASS_THRESHOLD = 0.5;
+
+/** The scores that failed a case (below the threshold), so the UI can say why. */
+export function failingScores(scores: Record<string, number | null>): string[] {
+  return Object.entries(scores)
+    .filter(([, v]) => v !== null && v < CASE_PASS_THRESHOLD)
+    .map(([id]) => id);
+}
+
 /** "Recall@k" → "Recall@5" for the suite's k. */
 export function metricName(id: string, k = 5): string {
   const m = METRICS.find((x) => x.id === id);

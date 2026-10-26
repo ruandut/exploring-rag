@@ -4,7 +4,7 @@
 // MUST update this file in the same change. Bump LAST_UPDATED when you do.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const LAST_UPDATED = "2026-10-26 · spec 0011 Benchmark timings";
+export const LAST_UPDATED = "2026-10-26 · run verdict counts failed cases";
 
 /** live = works end-to-end today · demo = wired up with fake data · planned = spec drafted */
 export type Status = "live" | "demo" | "planned";
@@ -455,7 +455,7 @@ export const GOTCHAS = [
 export const GLOSSARY = [
   [
     "Eval suite",
-    "A set of test cases + the metrics that score them + boundaries that decide pass/fail.",
+    "A set of test cases + the metrics that score them + optional boundaries. A run passes only if every case passes and every boundary holds.",
   ],
   [
     "LLM-as-judge",

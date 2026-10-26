@@ -2,7 +2,8 @@
 
 Flow: start_runs() creates the run + one pending CaseResult per case and starts the
 `benchmark-run` Hatchet task, which fans out a `benchmark-case` child per result and calls
-finalize() when they've all finished. retry_failed() does the same for just the failed ones.
+finalize() when they've all finished. retry_failed() does the same for just the failed ones
+(errored or scored below the case pass threshold).
 """
 
 from django.db import transaction
@@ -164,7 +165,9 @@ def start_runs(user, suite: EvalSuite, targets: list[dict]) -> list[BenchmarkRun
 
 @transaction.atomic
 def retry_failed(run: BenchmarkRun) -> int:
-    failed = list(run.results.filter(status=CaseResult.Status.FAILED))
+    # "Failed" means the same here as on the case chip: errored *or* scored below the threshold.
+    # Re-asking a below-threshold case is worth it — real models and judges aren't deterministic.
+    failed = list(run.results.exclude(passed=True))
     if not failed:
         return 0
     CaseResult.objects.filter(pk__in=[r.pk for r in failed]).update(
@@ -213,10 +216,16 @@ def _progress(run: BenchmarkRun) -> None:
 
 
 def finalize(run: BenchmarkRun) -> BenchmarkRun:
-    """Aggregate every metric, check the boundaries, and decide pass / fail."""
+    """Aggregate every metric, check the boundaries, and decide pass / fail.
+
+    A run passes only when every case passed *and* every applicable boundary holds. Boundaries
+    are optional, cases aren't — so the run verdict can never say "Passed" while the case list
+    shows failures.
+    """
     results = list(run.results.all())
     scored = [r for r in results if r.status == CaseResult.Status.DONE]
-    failed = [r for r in results if r.status == CaseResult.Status.FAILED]
+    errored = [r for r in results if r.status == CaseResult.Status.FAILED]
+    failed = [r for r in results if not r.passed]  # errored or below the case threshold
 
     metric_ids = list(run.suite_snapshot["metrics"])
     if any(r.case["kind"] == "refusal" for r in results):
@@ -231,7 +240,7 @@ def finalize(run: BenchmarkRun) -> BenchmarkRun:
         if field.endswith("_ms"):
             values = [v / 1000 for v in values]  # report seconds
         metrics[metric_id] = aggregate.summarise(values)
-    error_rate = len(failed) / len(results) if results else 0.0
+    error_rate = len(errored) / len(results) if results else 0.0
     metrics["error_rate"] = aggregate.summarise([error_rate])
 
     boundaries = [
@@ -246,7 +255,8 @@ def finalize(run: BenchmarkRun) -> BenchmarkRun:
         "done": len(results),
         "total": len(results),
         "failed_cases": len(failed),
-        "passed_cases": sum(1 for r in scored if r.passed),
+        "errored_cases": len(errored),
+        "passed_cases": len(results) - len(failed),
         "metrics": metrics,
         "boundaries": boundaries,
     }

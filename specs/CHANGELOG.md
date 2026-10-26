@@ -102,3 +102,8 @@
   gains a **Model speed** table across all runs. Fixed the side-by-side colouring, which
   showed the slower model's bigger latency as green. Measured from the agent's existing
   events — no change to the agent loop or the websocket contract.
+- **Fix (0006): run verdict now matches the cases.** A run with no boundaries showed "Passed"
+  and "0 failed cases" while its case list had "Failed" chips — only *errored* cases counted.
+  Now any case below the pass threshold fails the run, "failed cases" counts the same cases the
+  chips do (errored ones noted separately), "Retry failed cases" re-asks all of them, and
+  existing runs were re-judged by a migration.

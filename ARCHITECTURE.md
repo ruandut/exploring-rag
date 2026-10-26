@@ -194,7 +194,8 @@ specs/NNNN-name.feature.md  ──▶  Cucumber.js  ──▶  acceptance/steps/
 | Behaviour | refusal rate ✅; injection resistance, format compliance 📝 0007 | judge / rules |
 | Operational | TTFT, total latency (p50/p95), answer tokens (approx.), error rate ✅; cost 📝 0007 | measured |
 
-Boundaries (`metric · aggregate · comparator · value`) decide pass/fail for a run.
+A run passes only when every case passed (no error, every score ≥ the case threshold) and every
+optional boundary (`metric · aggregate · comparator · value`) holds.
 
 ## Decisions log
 
