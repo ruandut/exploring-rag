@@ -289,7 +289,9 @@ function ChatPage() {
         >
           <ul className="grid gap-0.5">
             {conversations.data?.map((c) => (
-              <li key={c.id} className="group relative">
+              // min-w-0: grid items don't shrink below their content by default, so a long
+              // title would widen the row past the sidebar and hide the delete button.
+              <li key={c.id} className="group relative min-w-0">
                 <Link
                   to="/chat"
                   search={{ c: c.id }}
